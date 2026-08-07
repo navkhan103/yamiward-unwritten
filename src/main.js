@@ -1,0 +1,707 @@
+/**
+ * YAMIWARD — bootstrap and render loop
+ * ============================================================================
+ * Wires the four systems together and owns the ONLY loop in the project:
+ *
+ *   requestAnimationFrame  ->  accumulator  ->  N x CombatEngine.step()  ->  render
+ *
+ * The accumulator is the important part. The engine advances in fixed 60Hz
+ * steps no matter what the display does; the renderer then draws wherever the
+ * simulation currently is. A 144Hz monitor gets smoother presentation, not a
+ * faster game — and frame data stays true.
+ *
+ * Flow: character select (DOM) -> intro VN beat -> match. The select screen
+ * reads `yd_clan` from localStorage — a resident whose bloodline champion is
+ * in the roster gets their fighter pre-highlighted. That is the site tie-in.
+ *
+ * Placeholder fighters are primitive meshes. The Meshy/Mixamo GLB pipeline
+ * drops in at `loadFighterModel()` without touching anything else, because the
+ * engine only ever moves numbers.
+ */
+
+import * as THREE from 'three';
+import { CombatEngine, Btn, State } from './CombatEngine.js';
+import { MOVES, CHARACTERS, RIVALS, ROSTER } from './moves.js';
+import { TekkenCamera } from './TekkenCamera.js';
+import { createCelMaterial, setHitFlash } from './celShader.js';
+import { buildDoll } from './paperdoll.js';
+import { Overlay } from './overlay.js';
+import { CpuBrain, CPU_LEVELS } from './cpu.js';
+
+const FIXED_DT = 1 / 60;
+
+// ---------------------------------------------------------------------------
+// Renderer / scene
+// ---------------------------------------------------------------------------
+
+const canvas = document.getElementById('game');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));   // cap: 3x DPR on mobile murders fill rate
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05050b);
+scene.fog = new THREE.FogExp2(0x05050b, 0.035);
+
+const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 200);
+
+// --- lighting: one strong key for readable cel banding, plus cool fill.
+// Anime lighting is high-contrast and directional; three soft lights average
+// out into mush and destroy the banding the toon ramp exists to produce.
+const key = new THREE.DirectionalLight(0xfff0e0, 2.6);
+key.position.set(5, 9, 4);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.near = 1;
+key.shadow.camera.far = 40;
+key.shadow.camera.left = -12; key.shadow.camera.right = 12;
+key.shadow.camera.top = 12; key.shadow.camera.bottom = -12;
+key.shadow.bias = -0.0006;
+key.shadow.normalBias = 0.02;
+scene.add(key);
+
+const rim = new THREE.DirectionalLight(0x8a5cff, 1.1);
+rim.position.set(-6, 4, -5);
+scene.add(rim);
+
+scene.add(new THREE.HemisphereLight(0x2a2a4a, 0x0a0a12, 0.55));
+
+// --- ground. A dark plane that only receives shadow keeps the fighters
+// anchored without competing with them for attention.
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x0a0a14, roughness: 0.55, metalness: 0.1 });
+const ground = new THREE.Mesh(new THREE.CircleGeometry(11, 64), groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+const ring = new THREE.Mesh(
+    new THREE.RingGeometry(8.9, 9.05, 96),
+    new THREE.MeshBasicMaterial({ color: 0x9be8e0, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+);
+ring.rotation.x = -Math.PI / 2;
+ring.position.y = 0.01;
+scene.add(ring);
+
+const grid = new THREE.GridHelper(22, 22, 0x1a1a2e, 0x12121f);
+grid.position.y = 0.002;
+scene.add(grid);
+
+// ---------------------------------------------------------------------------
+// Fighters (placeholder primitives — swap for GLB at loadFighterModel)
+// ---------------------------------------------------------------------------
+
+function buildPlaceholder(def) {
+    const group = new THREE.Group();
+    const inkBase = new THREE.Color(def.color).multiplyScalar(0.42);
+    const mat = createCelMaterial({
+        color: inkBase, rimColor: def.rimColor,
+        rimPower: 2.1, rimStrength: 1.35, steps: 3,
+    });
+
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 0.72, 6, 16), mat);
+    torso.position.y = 1.02;
+    torso.castShadow = true;
+    group.add(torso);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 24, 18), mat);
+    head.position.y = 1.72;
+    head.castShadow = true;
+    group.add(head);
+
+    // A forward marker: without it you cannot tell which way a capsule faces,
+    // and facing is load-bearing for every hit check.
+    const nose = new THREE.Mesh(
+        new THREE.ConeGeometry(0.1, 0.3, 12),
+        new THREE.MeshBasicMaterial({ color: def.rimColor })
+    );
+    nose.rotation.z = -Math.PI / 2;
+    nose.position.set(0.3, 1.72, 0);
+    group.add(nose);
+
+    // Fist — parented so it can be driven by the active-frame hitbox later.
+    const fist = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 12), mat);
+    fist.position.set(0.4, 1.3, 0);
+    fist.castShadow = true;
+    group.add(fist);
+
+    group.userData = { mat, torso, head, fist, flash: 0 };
+    return group;
+}
+
+/**
+ * Drop-in point for the asset pipeline.
+ * Meshy GLB -> Mixamo/AccuRIG -> DeepMotion -> Cascadeur -> GLTFLoader here.
+ * Returns the same shape as buildPlaceholder so nothing downstream changes.
+ */
+// async function loadFighterModel(url, def) { ... GLTFLoader + AnimationMixer ... }
+
+// ---------------------------------------------------------------------------
+// Projectile presentation — mirrors engine.projectiles by id
+// ---------------------------------------------------------------------------
+
+const projectileMeshes = new Map();   // engine id -> THREE.Mesh
+
+function syncProjectiles() {
+    if (!engine) return;
+    const live = new Set();
+    for (const pr of engine.projectiles) {
+        live.add(pr.id);
+        let mesh = projectileMeshes.get(pr.id);
+        if (!mesh) {
+            mesh = new THREE.Mesh(
+                new THREE.SphereGeometry(pr.radius * 0.8, 14, 10),
+                new THREE.MeshBasicMaterial({ color: pr.color, transparent: true, opacity: 0.9 })
+            );
+            // a cold glow shell — cheap, and reads at gameplay camera distance
+            const halo = new THREE.Mesh(
+                new THREE.SphereGeometry(pr.radius * 1.5, 12, 8),
+                new THREE.MeshBasicMaterial({ color: pr.color, transparent: true, opacity: 0.22 })
+            );
+            mesh.add(halo);
+            scene.add(mesh);
+            projectileMeshes.set(pr.id, mesh);
+        }
+        mesh.position.set(pr.x, pr.y, pr.z);
+    }
+    for (const [id, mesh] of projectileMeshes) {
+        if (!live.has(id)) { scene.remove(mesh); projectileMeshes.delete(id); }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Match state — created by startMatch(), torn down by nothing (page reload
+// is the rematch flow for now; select screen returns post-match later)
+// ---------------------------------------------------------------------------
+
+let engine = null;
+let meshes = [];
+let camRig = null;
+let cpu = null;                // CpuBrain driving slot 1, or null for 2P versus
+
+// P2 mode cycles on the select screen and persists like the clan pick does.
+// CPU medium is the boot default: solo play must work with zero setup.
+const P2_MODES = ['cpu:easy', 'cpu:medium', 'cpu:hard', '2p'];
+const P2_LABELS = {
+    'cpu:easy': 'VS CPU · EASY 弱', 'cpu:medium': 'VS CPU · MEDIUM 中',
+    'cpu:hard': 'VS CPU · HARD 強', '2p': '2P VERSUS 対戦',
+};
+let p2Mode = 'cpu:medium';
+try {
+    const saved = localStorage.getItem('yd_p2mode');
+    if (P2_MODES.includes(saved)) p2Mode = saved;
+} catch { /* storage unavailable — fine */ }
+const overlay = new Overlay();
+const hex = (n) => '#' + n.toString(16).padStart(6, '0');
+
+/**
+ * Pre-fight VN beats. Canon rival pairs get their real dialogue; any other
+ * pairing gets the Registrar's framing so no matchup ships silent.
+ * Voices are canon (internal design docs §5).
+ */
+function introFor(aKey, bKey) {
+    const A = CHARACTERS[aKey], B = CHARACTERS[bKey];
+    const pair = [aKey, bKey].sort().join('+');
+    const REG = { speaker: 'THE REGISTRAR', kanji: '闇', color: '#9BE8E0' };
+
+    const RIVAL_INTROS = {
+        'raiga+tetsuki': [
+            { ...REG, text: 'Twelve gates opened. Four champions answered. Tonight, two of them settle an old argument.' },
+            { speaker: 'RAIGA', kanji: '雷牙', color: hex(CHARACTERS.raiga.color), text: 'Gatekeeper! Smile for them once — the crowd came all this way.' },
+            { speaker: 'TETSUKI', kanji: '鉄鬼', color: hex(CHARACTERS.tetsuki.color), text: 'They came for the fight. Doors work both ways, Raiga. So do spotlights.' },
+        ],
+        'mayoi+yukiwari': [
+            { ...REG, text: 'The Registry notes an irregularity: one entrant refuses to be read. The other refuses to be reached.' },
+            { speaker: 'MAYOI', kanji: '迷', color: hex(CHARACTERS.mayoi.color), text: 'Snow-cutter! Guess which smile is real and I will let you hit it.' },
+            { speaker: 'YUKIWARI', kanji: '雪割', color: hex(CHARACTERS.yukiwari.color), text: 'Neither. You are not hiding, Mayoi. You are unfinished.' },
+        ],
+    };
+
+    return RIVAL_INTROS[pair] || [
+        { ...REG, text: `Twelve bloodlines keep the ward. Tonight, ${A.clan} and ${B.clan} disagree about who keeps which street.` },
+        { speaker: A.name, kanji: A.kanji, color: hex(A.color), text: A.voice },
+        { speaker: B.name, kanji: B.kanji, color: hex(B.color), text: B.voice },
+    ];
+}
+
+/** Remove the current match from the scene so select/rematch starts clean. */
+function teardownMatch() {
+    // Removing from the scene graph un-parents but does not free GPU memory:
+    // every doll owns ~11 plane geometries and a cloned texture per piece, so a
+    // long couch session of rematches would climb until the context is lost.
+    // Dispose on the way out. Textures are per-piece clones, so disposing them
+    // with their material is safe — nothing else holds them.
+    for (const m of meshes) {
+        m.traverse((o) => {
+            if (!o.isMesh) return;
+            o.geometry?.dispose();
+            for (const mat of (Array.isArray(o.material) ? o.material : [o.material])) {
+                if (!mat) continue;
+                mat.map?.dispose();
+                mat.dispose();
+            }
+        });
+        scene.remove(m);
+    }
+    meshes = [];
+    for (const [id, mesh] of projectileMeshes) { scene.remove(mesh); projectileMeshes.delete(id); }
+    engine = null;
+    camRig = null;
+    cpu = null;
+    resultsShown = false;
+}
+
+let currentMatch = null;      // { p1, p2 } for rematch
+let resultsShown = false;
+
+// ---------------------------------------------------------------------------
+// Results screen — a finished match must flow somewhere, not dead-end.
+// Rematch keeps the matchup (the "run it back" loop is the core of couch
+// play); CHANGE CHAMPION returns to select. Both tear down fully.
+// ---------------------------------------------------------------------------
+
+function showResults(winnerDef, loserDef, winnerRounds, loserRounds) {
+    const root = document.getElementById('results');
+    if (!root) return;
+    document.getElementById('results-kanji').textContent = winnerDef.kanji;
+    document.getElementById('results-title').textContent = `${winnerDef.name} WINS`;
+    document.getElementById('results-line').textContent =
+        `${winnerRounds}–${loserRounds} over ${loserDef.name} · ${winnerDef.clan}`;
+    root.style.setProperty('--accent', hex(winnerDef.color));
+    root.hidden = false;
+    resultsShown = true;
+}
+
+function hideResults() {
+    const root = document.getElementById('results');
+    if (root) root.hidden = true;
+}
+
+function rematch() {
+    if (!currentMatch) return;
+    hideResults();
+    teardownMatch();
+    startMatch(currentMatch.p1, currentMatch.p2);
+}
+
+function backToSelect() {
+    hideResults();
+    teardownMatch();
+    showSelect();
+}
+
+document.getElementById('results-rematch')?.addEventListener('click', rematch);
+document.getElementById('results-select')?.addEventListener('click', backToSelect);
+window.addEventListener('keydown', (e) => {
+    if (!resultsShown) return;
+    if (e.code === 'KeyR') { e.preventDefault(); rematch(); }
+    else if (e.code === 'Enter') { e.preventDefault(); backToSelect(); }
+});
+
+function startMatch(p1Key, p2Key) {
+    // Idempotent: starting a match while one exists must not leak the old one.
+    // `rematch` and `backToSelect` both tear down before calling here, but any
+    // other caller — a story-mode chapter transition, a debug/QA driver — would
+    // otherwise stack a second pair of dolls at the origin with nothing removing
+    // them. That leak is invisible in play (the new fighters render on top) and
+    // was only caught when a QA sweep counted 28 dolls in the scene.
+    if (meshes.length) teardownMatch();
+
+    currentMatch = { p1: p1Key, p2: p2Key };
+    const P1_DEF = CHARACTERS[p1Key];
+    const P2_DEF = CHARACTERS[p2Key];
+
+    // Paper-doll rig by default (SPEC-PAPERDOLL.md); `?placeholder=1` keeps
+    // the primitive capsules reachable for A/B and as the proven fallback.
+    const wantPlaceholder = new URLSearchParams(location.search).has('placeholder');
+    const buildFighter = (def) => {
+        if (wantPlaceholder) return buildPlaceholder(def);
+        try { return buildDoll(def); }
+        catch (err) { console.warn('doll build failed, using placeholder', err); return buildPlaceholder(def); }
+    };
+    meshes = [buildFighter(P1_DEF), buildFighter(P2_DEF)];
+    meshes.forEach((m) => scene.add(m));
+
+    engine = new CombatEngine(P1_DEF, P2_DEF, { moves: MOVES, seed: 0xBEEF, roundSeconds: 60 });
+    // Debug/QA handle — read-only inspection for browser-qa; nothing in the
+    // game reads this back.
+    window.__yw = { meshes, engine, scene, camera };
+    // The CPU is an input source, not an engine feature: it emits the same
+    // bitmasks a pad does, so replays and future netplay are unaffected.
+    cpu = p2Mode.startsWith('cpu:') ? new CpuBrain(1, p2Mode.split(':')[1]) : null;
+    camRig = new TekkenCamera(camera, { keepP1Left: true });
+    camRig.setFighters(meshes[0], meshes[1]);
+
+    overlay.setFighters(
+        { name: P1_DEF.name, kanji: P1_DEF.kanji, color: hex(P1_DEF.color), portrait: `./assets/portraits/${p1Key}.webp` },
+        { name: P2_DEF.name, kanji: P2_DEF.kanji, color: hex(P2_DEF.color), portrait: `./assets/portraits/${p2Key}.webp` }
+    );
+
+    overlay.playStory(introFor(p1Key, p2Key)).then(() => {
+        overlay.wipe();
+        overlay.announce('ROUND 1', '闘');
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Character select — DOM over the idle arena. P2 defaults to the canon rival,
+// which makes single-player boot straight into the story-correct matchup.
+// ---------------------------------------------------------------------------
+
+function showSelect() {
+    const root = document.getElementById('select');
+    const grid = document.getElementById('select-grid');
+    if (!root || !grid) { startMatch('tetsuki', 'raiga'); return; }
+
+    // Resident tie-in: highlight the player's bloodline champion if theirs.
+    let residentPick = null;
+    try {
+        const clan = (localStorage.getItem('yd_clan') || '').toLowerCase();
+        residentPick = ROSTER.find((k) => CHARACTERS[k].clan.toLowerCase().startsWith(clan) && clan);
+    } catch { /* storage unavailable — fine */ }
+
+    let cursor = Math.max(0, ROSTER.indexOf(residentPick ?? 'tetsuki'));
+
+    // Opponent mode toggle — click or press C to cycle. Lives on the select
+    // screen so switching from solo to couch versus is one input, not a menu.
+    const modeBtn = document.getElementById('select-p2mode');
+    function paintMode() {
+        if (modeBtn) modeBtn.textContent = P2_LABELS[p2Mode];
+    }
+    function cycleMode() {
+        p2Mode = P2_MODES[(P2_MODES.indexOf(p2Mode) + 1) % P2_MODES.length];
+        try { localStorage.setItem('yd_p2mode', p2Mode); } catch { /* fine */ }
+        paintMode();
+    }
+    modeBtn?.addEventListener('click', cycleMode);
+    paintMode();
+
+    grid.innerHTML = '';
+    const cards = ROSTER.map((keyName, i) => {
+        const def = CHARACTERS[keyName];
+        const card = document.createElement('button');
+        card.className = 'select-card';
+        card.style.setProperty('--accent', hex(def.color));
+        card.innerHTML =
+            // eager, not lazy: 4 x ~40KB, and lazy-load defers forever in a
+            // non-composited (hidden/background) tab — burned us in testing
+            `<img class="sc-portrait" src="./assets/portraits/${keyName}.webp" alt=""` +
+            ` onerror="this.remove()">` +   // missing art degrades to the kanji card, never a broken icon
+            `<div class="sc-kanji">${def.kanji}</div>` +
+            `<div class="sc-name">${def.name}</div>` +
+            `<div class="sc-arch">${def.archetype}</div>` +
+            `<div class="sc-clan">${def.clanKey ? `<img class="sc-crest" src="./assets/crests/${def.clanKey}.png" alt="" onerror="this.remove()">` : ''}${def.clan} · ${def.sign}</div>` +
+            `<div class="sc-blurb">${def.blurb}</div>` +
+            (keyName === residentPick ? '<div class="sc-resident">YOUR BLOODLINE</div>' : '');
+        card.addEventListener('click', () => pick(i));
+        card.addEventListener('mouseenter', () => focus(i));
+        grid.appendChild(card);
+        return card;
+    });
+
+    function focus(i) {
+        cursor = i;
+        cards.forEach((c, k) => c.classList.toggle('focused', k === i));
+    }
+
+    function pick(i) {
+        const p1 = ROSTER[i];
+        const p2 = RIVALS[p1] || ROSTER.find((k) => k !== p1);
+        root.hidden = true;
+        window.removeEventListener('keydown', onKey);
+        startMatch(p1, p2);
+    }
+
+    function onKey(e) {
+        if (root.hidden) return;
+        if (e.code === 'ArrowLeft' || e.code === 'KeyA') focus((cursor + ROSTER.length - 1) % ROSTER.length);
+        else if (e.code === 'ArrowRight' || e.code === 'KeyD') focus((cursor + 1) % ROSTER.length);
+        else if (e.code === 'Enter' || e.code === 'Space' || e.code === 'KeyJ') { e.preventDefault(); pick(cursor); }
+        else if (e.code === 'KeyC') cycleMode();
+    }
+
+    window.addEventListener('keydown', onKey);
+    focus(cursor);
+    root.hidden = false;
+}
+
+// ---------------------------------------------------------------------------
+// Input
+// ---------------------------------------------------------------------------
+// Tekken mapping, which is not the obvious one: LEFT/RIGHT walk along the
+// fighting axis, UP/DOWN *sidestep* into 3D. Holding down crouches; tapping it
+// steps. Getting this right is most of why the game feels like Tekken.
+
+const held = new Set();
+window.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    held.add(e.code);
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+});
+window.addEventListener('keyup', (e) => held.delete(e.code));
+window.addEventListener('blur', () => held.clear());
+
+const P1_KEYS = { back: 'KeyA', fwd: 'KeyD', stepL: 'KeyW', stepR: 'KeyS', crouch: 'KeyS', light: 'KeyJ', heavy: 'KeyK', low: 'KeyL', special: 'KeyI', super: 'KeyU' };
+const P2_KEYS = { back: 'ArrowRight', fwd: 'ArrowLeft', stepL: 'ArrowUp', stepR: 'ArrowDown', crouch: 'ArrowDown', light: 'Numpad1', heavy: 'Numpad2', low: 'Numpad3', special: 'Numpad5', super: 'Numpad0' };
+
+// ---------------------------------------------------------------------------
+// Gamepads — controller N drives fighter slot N, merged with the keyboard so
+// either input works at any time. Standard mapping:
+//   left stick / d-pad ......... walk (x) and sidestep-tap / crouch-hold (y)
+//   X(2) light · Y(3) heavy · A(0) low · B(1) special · RB(5)/RT(7) super
+// Walk direction mirrors each slot's keyboard convention (P2's is flipped),
+// so a controller feels identical to the keys it replaces.
+// ---------------------------------------------------------------------------
+
+const PAD_DEAD = 0.35;
+const padTap = [{ up: 0, down: 0 }, { up: 0, down: 0 }];
+
+function padBits(slot) {
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const p = pads[slot];
+    if (!p || !p.connected) return 0;
+    let m = 0;
+
+    const ax = p.axes[0] ?? 0;
+    const ay = p.axes[1] ?? 0;
+    const left = ax < -PAD_DEAD || p.buttons[14]?.pressed;
+    const right = ax > PAD_DEAD || p.buttons[15]?.pressed;
+    const up = ay < -PAD_DEAD || p.buttons[12]?.pressed;
+    const down = ay > PAD_DEAD || p.buttons[13]?.pressed;
+
+    // slot 0 keyboard: A=back(left) D=fwd(right); slot 1 mirrored
+    if (slot === 0) { if (left) m |= Btn.BACK; if (right) m |= Btn.FORWARD; }
+    else { if (right) m |= Btn.BACK; if (left) m |= Btn.FORWARD; }
+
+    // vertical: rising edge = sidestep, sustained down = crouch (same
+    // tap-vs-hold rule as the keyboard, tracked per pad)
+    const t = padTap[slot];
+    if (up && t.up === 0) m |= Btn.STEP_LEFT;
+    t.up = up ? t.up + 1 : 0;
+    if (down && t.down === 0) m |= Btn.STEP_RIGHT;
+    t.down = down ? t.down + 1 : 0;
+    if (down && t.down > 8) m |= Btn.CROUCH;
+
+    if (p.buttons[2]?.pressed) m |= Btn.LIGHT;
+    if (p.buttons[3]?.pressed) m |= Btn.HEAVY;
+    if (p.buttons[0]?.pressed) m |= Btn.LOW;
+    if (p.buttons[1]?.pressed) m |= Btn.SPECIAL;
+    if (p.buttons[5]?.pressed || p.buttons[7]?.pressed) m |= Btn.SUPER;
+    return m;
+}
+
+window.addEventListener('gamepadconnected', (e) => {
+    overlay.announce(`P${e.gamepad.index + 1} PAD`, '接続', 1.2);
+});
+
+// tap-vs-hold: a short press sidesteps, a sustained one crouches
+const tapState = [{}, {}];
+function readInput(slot) {
+    const K = slot === 0 ? P1_KEYS : P2_KEYS;
+    const t = tapState[slot];
+    let m = 0;
+
+    if (held.has(K.back)) m |= Btn.BACK;
+    if (held.has(K.fwd)) m |= Btn.FORWARD;
+
+    for (const [key, bit] of [[K.stepL, Btn.STEP_LEFT], [K.stepR, Btn.STEP_RIGHT]]) {
+        const down = held.has(key);
+        const prev = t[key] || 0;
+        if (down && prev === 0) m |= bit;            // rising edge = step
+        t[key] = down ? prev + 1 : 0;
+        if (down && prev > 8 && key === K.crouch) m |= Btn.CROUCH;   // held = crouch
+    }
+
+    if (held.has(K.light)) m |= Btn.LIGHT;
+    if (held.has(K.heavy)) m |= Btn.HEAVY;
+    if (held.has(K.low)) m |= Btn.LOW;
+    if (held.has(K.special)) m |= Btn.SPECIAL;
+    if (held.has(K.super)) m |= Btn.SUPER;
+    return m | padBits(slot);
+}
+
+// ---------------------------------------------------------------------------
+// Engine events -> presentation
+// ---------------------------------------------------------------------------
+
+function handleEvents() {
+    for (const ev of engine.drainEvents()) {
+        switch (ev.type) {
+            case 'hit': {
+                camRig.addShake(ev.counter ? 0.85 : 0.5);
+                meshes[ev.slot].userData.flash = 1;
+                if (ev.counter) overlay.announce('COUNTER', '', 0.7);
+                else if (ev.move?.isGrab) overlay.announce('GRIP', '掴', 0.7);
+                break;
+            }
+            case 'block': camRig.addShake(0.18); break;
+            case 'armor': {
+                // reads as "he walked through it" — flash the armored fighter gold
+                camRig.addShake(0.4);
+                meshes[ev.slot].userData.flash = 0.6;
+                overlay.announce('ARMOR', '鉄', 0.6);
+                break;
+            }
+            case 'status': {
+                if (ev.kind === 'frostbite') overlay.announce('FROSTBITE', '凍', 0.6);
+                else if (ev.kind === 'charge' && ev.lost) overlay.announce('CHARGE LOST', '', 0.6);
+                else if (ev.kind === 'charge' && ev.value >= 10) overlay.announce('MAX CHARGE', '雷', 0.8);
+                break;
+            }
+            case 'wallsplat': camRig.addShake(1.0); overlay.announce('WALL', '壁', 0.8); break;
+            case 'crush': overlay.announce(ev.kind === 'high' ? 'DUCKED' : 'HOPPED', '', 0.6); break;
+            case 'whiff': overlay.announce('SIDESTEP', '回避', 0.7); break;
+            case 'round': overlay.announce(`ROUND ${ev.round}`, '闘'); camRig.snap(); break;
+            case 'fight': overlay.announce('FIGHT', '始め'); break;
+            case 'ko': overlay.announce('K.O.', '', 2.4); camRig.addShake(1); break;
+            case 'timeout': overlay.announce('TIME', '', 2.4); break;
+            case 'matchend': {
+                const w = engine.fighters[engine.winner - 1];
+                const l = engine.fighters[2 - engine.winner];
+                overlay.announce(`${w.def.name} WINS`, w.def.kanji, 2.2);
+                // let the announce land, then offer the way forward
+                const eng = engine;   // guard: a rematch during the delay must not resurrect a dead ref
+                setTimeout(() => {
+                    if (engine === eng) showResults(w.def, l.def, w.roundsWon, l.roundsWon);
+                }, 2400);
+                break;
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sync engine state -> scene graph
+// ---------------------------------------------------------------------------
+
+function syncMeshes(dt) {
+    for (let i = 0; i < 2; i++) {
+        const f = engine.fighters[i];
+        const g = meshes[i];
+        g.position.set(f.pos.x, f.pos.y, f.pos.z);
+
+        const ud = g.userData;
+
+        // Paper-doll path: pose evaluator + billboard live in the doll.
+        if (ud.doll) {
+            ud.doll.update(f, dt, camera);
+            if (ud.flash > 0) {
+                ud.flash = Math.max(0, ud.flash - dt * 6);
+                setHitFlash(ud.mat, ud.flash * 0.8);
+            }
+            continue;
+        }
+
+        // face the opponent; +1 faces +x
+        g.rotation.y = f.facing === 1 ? 0 : Math.PI;
+
+        // crude state posing until skeletal clips land
+        const crouched = f.state === State.CROUCH || f.crouching;
+        const targetScale = crouched ? 0.72 : 1;
+        ud.torso.scale.y += (targetScale - ud.torso.scale.y) * Math.min(1, dt * 18);
+        ud.head.position.y = 1.72 * (crouched ? 0.78 : 1);
+
+        // punch extension during active frames — reads the hitbox visually
+        let reach = 0.4;
+        if (f.state === State.ATTACKING && f.move) {
+            const m = f.move;
+            const p = f.stateFrame / Math.max(1, m.startupFrames + m.activeFrames);
+            reach = 0.4 + Math.min(1, p) * (m.reach - 0.4);
+            ud.fist.position.y = m.hitboxHeight ?? 1.3;
+        } else {
+            ud.fist.position.y += (1.3 - ud.fist.position.y) * Math.min(1, dt * 12);
+        }
+        ud.fist.position.x += (reach - ud.fist.position.x) * Math.min(1, dt * 30);
+
+        // impact flash decay
+        if (ud.flash > 0) {
+            ud.flash = Math.max(0, ud.flash - dt * 6);
+            setHitFlash(ud.mat, ud.flash * 0.8);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Loop
+// ---------------------------------------------------------------------------
+
+let acc = 0;
+let last = performance.now();
+let fpsAcc = 0, fpsFrames = 0, fps = 60;
+
+function frame(now) {
+    requestAnimationFrame(frame);
+    let dt = (now - last) / 1000;
+    last = now;
+    if (dt > 0.25) dt = 0.25;          // tab was backgrounded — do not fast-forward
+    acc += dt;
+
+    if (!engine) {                      // still on character select
+        renderer.render(scene, camera);
+        acc = 0;
+        return;
+    }
+
+    // Fixed-step simulation. The cap stops a long stall from spiralling.
+    let steps = 0;
+    while (acc >= FIXED_DT && steps < 5) {
+        if (!overlay.storyActive) {
+            engine.step([readInput(0), cpu ? cpu.bits(engine) : readInput(1)]);
+        }
+        acc -= FIXED_DT;
+        steps++;
+    }
+
+    handleEvents();
+    syncMeshes(dt);
+    syncProjectiles();
+    camRig.update(dt);
+
+    fpsAcc += dt; fpsFrames++;
+    if (fpsAcc >= 0.5) { fps = Math.round(fpsFrames / fpsAcc); fpsAcc = 0; fpsFrames = 0; }
+
+    const f0 = engine.fighters[0], f1 = engine.fighters[1];
+    overlay.update({
+        timer: engine.timer,
+        fighters: [f0, f1].map((f) => ({
+            slot: f.slot, health: f.health, maxHealth: f.def.maxHealth,
+            meter: f.meter, roundsWon: f.roundsWon,
+            combo: f.comboCount, comboDamage: f.comboDamage,
+        })),
+        debug: `${fps} fps · frame ${engine.frame} · ${f0.state}/${f1.state}` +
+            (f0.charge ? ` · ⚡${f0.charge}` : '') + (f1.charge ? ` · ⚡${f1.charge}` : '') +
+            (f0.move ? ` · ${f0.move.moveName} f${f0.stateFrame}` : ''),
+    }, dt);
+
+    renderer.render(scene, camera);
+}
+
+function resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+// A neutral establishing camera while the select screen is up.
+camera.position.set(0, 3.2, 10.5);
+camera.lookAt(0, 1.2, 0);
+
+showSelect();
+requestAnimationFrame(frame);
+
+// exposed for console poking and the headless balance harness. handleEvents
+// and the results/flow functions are here so a non-composited tab (frozen
+// rAF) can still drive and assert the full match loop.
+window.YAMIWARD = {
+    get engine() { return engine; }, get camRig() { return camRig; },
+    overlay, scene, renderer, MOVES, CHARACTERS, ROSTER, RIVALS,
+    startMatch, showSelect, rematch, backToSelect, handleEvents, readInput,
+    CpuBrain, CPU_LEVELS, get cpu() { return cpu; },
+    setP2Mode(m) { if (P2_MODES.includes(m)) p2Mode = m; return p2Mode; },
+};

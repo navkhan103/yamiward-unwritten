@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>YAMIWARD 闇区 — UNWRITTEN</title>
+    <link rel="stylesheet" href="./styles.css">
+
+    <!--
+      Import map keeps this buildless: no bundler, no node_modules, just a static
+      server. Three.js is VENDORED (vendor/three.module.js, MIT, v0.169.0) so no
+      third party sits in the boot path. When GLTFLoader lands, vendor the addon
+      files into vendor/addons/ the same way — never point this back at a CDN.
+    -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "./vendor/three.module.js",
+            "three/addons/": "./vendor/addons/"
+        }
+    }
+    </script>
+</head>
+
+<body>
+    <!-- WebGL surface. Everything below is DOM drawn on top of it. -->
+    <canvas id="game"></canvas>
+
+    <div id="hud">
+        <!-- ===== top bar: portraits, health, meter, timer ===== -->
+        <div class="hud-top">
+            <div class="fighter-panel p1">
+                <div class="portrait" id="p1-portrait">鬼</div>
+                <div class="bars">
+                    <div class="name" id="p1-name">—</div>
+                    <div class="health-track">
+                        <div class="health-chip" id="p1-chip"></div>
+                        <div class="health-fill" id="p1-health"></div>
+                    </div>
+                    <div class="meter-track">
+                        <div class="meter-fill" id="p1-meter"></div>
+                    </div>
+                    <div class="rounds" id="p1-rounds"><i></i><i></i></div>
+                </div>
+            </div>
+
+            <div class="centre">
+                <div class="timer" id="timer">60</div>
+                <div class="timer-label">闇区</div>
+            </div>
+
+            <div class="fighter-panel p2">
+                <div class="bars">
+                    <div class="name" id="p2-name">—</div>
+                    <div class="health-track">
+                        <div class="health-chip" id="p2-chip"></div>
+                        <div class="health-fill" id="p2-health"></div>
+                    </div>
+                    <div class="meter-track">
+                        <div class="meter-fill" id="p2-meter"></div>
+                    </div>
+                    <div class="rounds" id="p2-rounds"><i></i><i></i></div>
+                </div>
+                <div class="portrait" id="p2-portrait">雷</div>
+            </div>
+        </div>
+
+        <!-- ===== combo counter ===== -->
+        <div id="combo" hidden>
+            <span id="combo-count">0</span>
+            <small>HIT</small>
+            <span id="combo-dmg">0 DMG</span>
+        </div>
+
+        <!-- ===== centre announcements ===== -->
+        <div id="announce" hidden>
+            <div id="announce-main">ROUND 1</div>
+            <div id="announce-sub">闘</div>
+        </div>
+
+        <!-- ===== visual-novel dialogue ===== -->
+        <div id="story" hidden>
+            <div class="story-card">
+                <div class="story-portrait" id="story-portrait">闇</div>
+                <div class="story-body">
+                    <div class="story-name" id="story-name">THE WARD</div>
+                    <p class="story-text" id="story-text"></p>
+                </div>
+                <button class="story-next" id="story-next" aria-label="Continue">▼</button>
+            </div>
+        </div>
+
+        <!-- ===== transition wipe ===== -->
+        <div id="wipe"></div>
+
+        <!-- ===== post-match results ===== -->
+        <div id="results" hidden>
+            <div class="results-card">
+                <div class="results-kanji" id="results-kanji">勝</div>
+                <div class="results-title" id="results-title">— WINS</div>
+                <div class="results-line" id="results-line"></div>
+                <div class="results-actions">
+                    <button id="results-rematch" class="results-btn">REMATCH <span>再戦</span></button>
+                    <button id="results-select" class="results-btn alt">CHANGE CHAMPION <span>選択</span></button>
+                </div>
+                <div class="results-hint">R rematch · Enter change champion</div>
+            </div>
+        </div>
+
+        <!-- ===== character select ===== -->
+        <div id="select" hidden>
+            <div class="select-title">CHOOSE YOUR CHAMPION</div>
+            <div class="select-sub">四人の代表 — four answered the gates</div>
+            <button id="select-p2mode" class="select-mode">VS CPU · MEDIUM 中</button>
+            <div id="select-grid"></div>
+            <div class="select-hint">←/→ or hover · Enter / click to lock in · C changes opponent · your rival awaits</div>
+        </div>
+
+        <!-- ===== controls + debug ===== -->
+        <div class="controls-hint">
+            <b>P1</b> A/D walk · W/S sidestep (hold S crouch) · J light · K launcher · L low · I special · U super
+            <span class="sep">|</span>
+            <b>P2</b> ←/→ walk · ↑/↓ sidestep · Num1/2/3 · Num5 special · Num0 super
+        </div>
+        <div id="debug"></div>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+</body>
+
+</html>

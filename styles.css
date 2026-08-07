@@ -1,0 +1,663 @@
+/* ============================================================================
+   YAMIWARD — HUD + narrative overlay
+   ----------------------------------------------------------------------------
+   Rules this stylesheet follows:
+     - The overlay NEVER eats input. #hud is pointer-events:none; only the few
+       genuinely interactive controls opt back in. A HUD that swallows clicks is
+       the most common bug in browser games.
+     - Bars animate via transform:scaleX only. Animating width relayouts every
+       frame and will cost you 60fps on mobile.
+     - Everything is anchored with safe-area insets so notched phones do not
+       clip the health bars.
+   ========================================================================= */
+
+:root {
+    --p1-color: #E51E25;
+    --p2-color: #A06AE8;
+    --ink: #05050b;
+    --ward-cyan: #9BE8E0;
+    --gold: #D8B45A;
+    --mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--ink);
+    color: #fff;
+    font-family: var(--mono);
+    -webkit-font-smoothing: antialiased;
+}
+
+#game {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    touch-action: none;
+}
+
+#hud {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;      /* see header note */
+    user-select: none;
+    z-index: 10;
+    padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+             max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+}
+
+/* ---------- top bar ---------- */
+
+.hud-top {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 18px;
+    align-items: start;
+}
+
+.fighter-panel {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.fighter-panel.p2 { flex-direction: row; justify-content: flex-end; }
+.fighter-panel.p2 .bars { align-items: flex-end; }
+
+.portrait {
+    width: 62px;
+    height: 62px;
+    flex: 0 0 62px;
+    display: grid;
+    place-items: center;
+    font-size: 2rem;
+    line-height: 1;
+    background: rgba(255, 255, 255, 0.04);
+    border: 2px solid currentColor;
+    clip-path: polygon(0 0, 100% 0, 100% 78%, 78% 100%, 0 100%);
+}
+
+.p1 .portrait { color: var(--p1-color); }
+.p2 .portrait { color: var(--p2-color); clip-path: polygon(0 0, 100% 0, 100% 100%, 22% 100%, 0 78%); }
+
+.bars {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    flex: 1;
+    min-width: 0;
+    max-width: 460px;
+}
+
+.name {
+    font-size: 0.78rem;
+    letter-spacing: 0.16em;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.health-track,
+.meter-track {
+    position: relative;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    overflow: hidden;
+}
+
+.health-track { height: 20px; }
+.meter-track { height: 7px; border-color: rgba(216, 180, 90, 0.35); }
+
+.health-fill,
+.health-chip,
+.meter-fill {
+    position: absolute;
+    inset: 0;
+    transform-origin: left center;
+    transform: scaleX(1);
+    will-change: transform;
+}
+
+/* the drain layer sits behind and lags — this is what sells combo damage */
+.health-chip { background: rgba(255, 255, 255, 0.55); }
+.health-fill { background: var(--bar-color, #fff); }
+
+.p1 .health-fill { background: var(--p1-color); }
+.p2 .health-fill { background: var(--p2-color); }
+
+.p2 .health-fill,
+.p2 .health-chip,
+.p2 .meter-fill { transform-origin: right center; }
+
+.meter-fill { background: rgba(216, 180, 90, 0.55); transition: background 0.2s; }
+.meter-fill.ready {
+    background: var(--gold);
+    box-shadow: 0 0 14px rgba(216, 180, 90, 0.8);
+    animation: meterPulse 0.9s infinite ease-in-out;
+}
+
+@keyframes meterPulse {
+    0%, 100% { opacity: 0.85; }
+    50% { opacity: 1; }
+}
+
+.rounds { display: flex; gap: 7px; margin-top: 2px; }
+.p2 .rounds { justify-content: flex-end; }
+
+.rounds i {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.p1 .rounds i.won { background: var(--p1-color); }
+.p2 .rounds i.won { background: var(--p2-color); }
+
+.centre { text-align: center; min-width: 92px; }
+
+.timer {
+    font-size: 3rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.04em;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8);
+}
+
+.timer.urgent { color: var(--p1-color); animation: meterPulse 0.5s infinite; }
+
+.timer-label {
+    font-size: 0.66rem;
+    letter-spacing: 0.4em;
+    color: rgba(255, 255, 255, 0.35);
+    margin-top: 2px;
+}
+
+/* ---------- combo counter ---------- */
+
+#combo {
+    position: absolute;
+    top: 27%;
+    left: 6%;
+    text-align: left;
+    text-shadow: 0 2px 14px #000;
+}
+
+#combo.right { left: auto; right: 6%; text-align: right; }
+
+#combo-count {
+    font-size: 3.2rem;
+    font-weight: 700;
+    line-height: 0.9;
+    color: var(--gold);
+}
+
+#combo small {
+    font-size: 0.9rem;
+    letter-spacing: 0.2em;
+    margin-left: 6px;
+    color: #fff;
+}
+
+#combo-dmg {
+    display: block;
+    font-size: 0.74rem;
+    letter-spacing: 0.14em;
+    color: rgba(255, 255, 255, 0.6);
+    margin-top: 2px;
+}
+
+/* ---------- centre announcements ---------- */
+
+#announce {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    text-align: center;
+    pointer-events: none;
+}
+
+#announce-main {
+    font-size: clamp(2.4rem, 8vw, 5rem);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-shadow: 0 0 34px rgba(229, 30, 37, 0.85), 0 4px 20px #000;
+}
+
+#announce-sub {
+    font-size: clamp(0.9rem, 2.4vw, 1.4rem);
+    letter-spacing: 0.42em;
+    color: var(--gold);
+    margin-top: 8px;
+}
+
+#announce.play #announce-main { animation: slamIn 0.42s cubic-bezier(0.16, 1, 0.3, 1); }
+#announce.play #announce-sub { animation: fadeUp 0.6s ease both 0.1s; }
+
+@keyframes slamIn {
+    0% { transform: scale(2.4) translateY(-10px); opacity: 0; filter: blur(9px); }
+    60% { transform: scale(0.94); opacity: 1; filter: blur(0); }
+    100% { transform: scale(1); }
+}
+
+@keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: none; }
+}
+
+/* ---------- visual-novel dialogue ---------- */
+
+#story {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 0 max(14px, env(safe-area-inset-left)) max(20px, env(safe-area-inset-bottom));
+    pointer-events: auto;         /* this layer IS interactive */
+}
+
+#hud.story-mode::before {
+    /* letterbox the fight while a story beat plays */
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(4, 4, 10, 0.92) 0%, rgba(4, 4, 10, 0.5) 34%, transparent 62%);
+    pointer-events: none;
+}
+
+.story-card {
+    position: relative;
+    max-width: 900px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 88px 1fr auto;
+    gap: 16px;
+    align-items: stretch;
+    background: rgba(6, 6, 14, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    border-left: 3px solid var(--speaker-color, var(--ward-cyan));
+    padding: 16px 18px;
+    animation: fadeUp 0.28s ease both;
+}
+
+.story-portrait {
+    width: 88px;
+    height: 88px;
+    display: grid;
+    place-items: center;
+    font-size: 2.4rem;
+    color: var(--speaker-color, var(--ward-cyan));
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.story-name {
+    font-size: 0.72rem;
+    letter-spacing: 0.24em;
+    color: var(--speaker-color, var(--ward-cyan));
+    margin-bottom: 8px;
+}
+
+.story-text {
+    margin: 0;
+    font-size: 0.94rem;
+    line-height: 1.65;
+    color: rgba(255, 255, 255, 0.88);
+    min-height: 3.2em;
+}
+
+.story-next {
+    align-self: end;
+    background: none;
+    border: none;
+    color: var(--gold);
+    font: inherit;
+    font-size: 1rem;
+    cursor: pointer;
+    opacity: 0;
+    padding: 4px 8px;
+}
+
+.story-next.ready { opacity: 1; animation: bob 1s infinite ease-in-out; }
+
+@keyframes bob {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(4px); }
+}
+
+/* ---------- transition wipe ---------- */
+
+#wipe {
+    position: absolute;
+    inset: 0;
+    background: var(--ink);
+    transform: scaleY(0);
+    transform-origin: top;
+    pointer-events: none;
+}
+
+#wipe.play { animation: wipeThrough 0.52s ease-in-out; }
+
+@keyframes wipeThrough {
+    0% { transform: scaleY(0); transform-origin: top; }
+    45% { transform: scaleY(1); transform-origin: top; }
+    55% { transform: scaleY(1); transform-origin: bottom; }
+    100% { transform: scaleY(0); transform-origin: bottom; }
+}
+
+/* ---------- footer ---------- */
+
+.controls-hint {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    text-align: center;
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    color: rgba(255, 255, 255, 0.32);
+}
+
+.controls-hint b { color: rgba(255, 255, 255, 0.6); font-weight: 700; }
+.controls-hint .sep { margin: 0 10px; color: rgba(255, 255, 255, 0.18); }
+
+#debug {
+    position: absolute;
+    left: max(14px, env(safe-area-inset-left));
+    bottom: 34px;
+    font-size: 0.6rem;
+    letter-spacing: 0.06em;
+    color: rgba(155, 232, 224, 0.4);
+}
+
+#hud.story-mode .controls-hint,
+#hud.story-mode #combo { opacity: 0; }
+
+@media (max-width: 760px) {
+    .portrait { width: 44px; height: 44px; flex-basis: 44px; font-size: 1.4rem; }
+    .health-track { height: 15px; }
+    .timer { font-size: 2rem; }
+    .story-card { grid-template-columns: 56px 1fr auto; gap: 11px; padding: 12px; }
+    .story-portrait { width: 56px; height: 56px; font-size: 1.6rem; }
+    .story-text { font-size: 0.84rem; }
+    .controls-hint { display: none; }
+}
+
+/* ===== character select ==================================================
+   DOM over the idle arena, same philosophy as the HUD: the canvas draws the
+   world, the DOM draws the words. Accent color per card comes from the
+   character def via --accent so the roster can grow without new CSS. */
+
+#select {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: radial-gradient(ellipse at 50% 40%, rgba(5, 5, 11, 0.55), rgba(5, 5, 11, 0.92));
+    z-index: 30;
+}
+
+.select-title {
+    font-size: 1.6rem;
+    font-weight: 800;
+    letter-spacing: 0.34em;
+    color: #eee;
+    text-shadow: 0 0 24px rgba(155, 232, 224, 0.35);
+}
+
+.select-sub {
+    font-size: 0.72rem;
+    letter-spacing: 0.22em;
+    color: rgba(155, 232, 224, 0.6);
+    margin-top: -8px;
+}
+
+#select-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(150px, 205px));
+    gap: 14px;
+    width: min(92vw, 940px);
+}
+
+.select-card {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(20, 20, 34, 0.92), rgba(9, 9, 16, 0.94));
+    color: #ddd;
+    padding: 16px 12px 14px;
+    text-align: center;
+    cursor: pointer;
+    transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 230px;
+}
+
+.select-card.focused,
+.select-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 12px 34px rgba(0, 0, 0, 0.55), 0 0 26px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.sc-kanji {
+    font-size: 2.6rem;
+    line-height: 1.1;
+    color: var(--accent);
+    text-shadow: 0 0 18px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.sc-name {
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    font-size: 0.95rem;
+    color: #fff;
+}
+
+.sc-arch {
+    font-size: 0.62rem;
+    letter-spacing: 0.3em;
+    color: var(--accent);
+}
+
+.sc-clan {
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.sc-blurb {
+    font-size: 0.66rem;
+    line-height: 1.45;
+    color: rgba(255, 255, 255, 0.72);
+    margin-top: auto;
+}
+
+.sc-resident {
+    font-size: 0.58rem;
+    letter-spacing: 0.24em;
+    color: #05050b;
+    background: var(--accent);
+    border-radius: 3px;
+    padding: 3px 6px;
+    font-weight: 800;
+}
+
+.select-hint {
+    font-size: 0.64rem;
+    letter-spacing: 0.12em;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+@media (max-width: 760px) {
+    #select-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+    .select-title { font-size: 1.05rem; letter-spacing: 0.22em; }
+    .select-card { min-height: 200px; }
+}
+
+/* ===== select-card portraits =============================================
+   Canonical character art (WebP, assets/portraits/). The kanji block
+   stays behind it as the fallback identity if the image is absent. */
+
+.sc-portrait {
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+    object-position: center 10%;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    filter: saturate(1.05);
+}
+
+.select-card .sc-portrait + .sc-kanji {
+    font-size: 1.4rem;
+    margin-top: -2px;
+}
+
+/* ===== post-match results =================================================
+   Same DOM-over-canvas philosophy as select. --accent is stamped from the
+   winner's def color at show time. */
+
+#results {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at 50% 45%, rgba(5, 5, 11, 0.35), rgba(5, 5, 11, 0.9));
+    z-index: 28;
+}
+
+.results-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 30px 44px 24px;
+    border: 1px solid color-mix(in srgb, var(--accent, #9BE8E0) 55%, transparent);
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(18, 18, 30, 0.95), rgba(8, 8, 14, 0.97));
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6), 0 0 40px color-mix(in srgb, var(--accent, #9BE8E0) 22%, transparent);
+    text-align: center;
+}
+
+.results-kanji {
+    font-size: 3.4rem;
+    line-height: 1.1;
+    color: var(--accent, #9BE8E0);
+    text-shadow: 0 0 26px color-mix(in srgb, var(--accent, #9BE8E0) 65%, transparent);
+}
+
+.results-title {
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: 0.24em;
+    color: #fff;
+}
+
+.results-line {
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.results-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.results-btn {
+    appearance: none;
+    cursor: pointer;
+    border-radius: 7px;
+    padding: 11px 22px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    font-size: 0.82rem;
+    border: 1px solid var(--accent, #9BE8E0);
+    background: var(--accent, #9BE8E0);
+    color: #05050b;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.results-btn span {
+    opacity: 0.65;
+    margin-left: 6px;
+    font-weight: 600;
+}
+
+.results-btn.alt {
+    background: transparent;
+    color: #ddd;
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.results-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+}
+
+.results-hint {
+    margin-top: 8px;
+    font-size: 0.6rem;
+    letter-spacing: 0.12em;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+/* ===== opponent mode toggle (select screen) ============================== */
+
+.select-mode {
+    appearance: none;
+    cursor: pointer;
+    margin: 4px auto 14px;
+    display: block;
+    padding: 8px 20px;
+    border-radius: 6px;
+    border: 1px solid rgba(155, 232, 224, 0.45);
+    background: rgba(10, 10, 18, 0.85);
+    color: #9BE8E0;
+    font-weight: 800;
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    transition: border-color 0.12s ease, color 0.12s ease, transform 0.1s ease;
+}
+
+.select-mode:hover {
+    border-color: #9BE8E0;
+    color: #fff;
+    transform: translateY(-1px);
+}
+
+/* [hidden] must ALWAYS win. Overlay panels (#select, #results, #story) are
+   shown via `display: flex` on id selectors, which outranks the UA's
+   [hidden] { display: none } — so without this rule, hiding them changes
+   JS state but not pixels. Headless checks pass, real screens "freeze". */
+[hidden] {
+    display: none !important;
+}
+
+/* Clan crest chip on the select card — same asset as the in-game forearm mark
+   (SPEC-PAPERDOLL.md §3.3). Tinted circle keeps twelve dark seals readable. */
+.sc-crest {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+    vertical-align: -5px;
+    margin-right: 6px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+    padding: 2px;
+}

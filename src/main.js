@@ -27,6 +27,7 @@ import { createCelMaterial, setHitFlash } from './celShader.js';
 import { buildDoll } from './paperdoll.js';
 import { Overlay } from './overlay.js';
 import { CpuBrain, CPU_LEVELS } from './cpu.js';
+import { Stage, stageForMatch, STAGE_FOR, STAGE_TITLES } from './stage.js';
 
 const FIXED_DT = 1 / 60;
 
@@ -55,11 +56,17 @@ const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerH
 const key = new THREE.DirectionalLight(0xfff0e0, 2.6);
 key.position.set(5, 9, 4);
 key.castShadow = true;
-key.shadow.mapSize.set(2048, 2048);
+// Shadow budget. The old 2048 map over a 24x24 box spent most of its texels on
+// empty arena: fighters are pushed apart by at most ~7 units and are ~2 tall, so
+// a 14x14 box at 1024 gives ~73 texels/unit against the old ~85 — visually a
+// wash, at a QUARTER of the fill cost. That matters more now than it did before,
+// because doll pieces render a real cutout into the depth pass instead of being
+// skipped, so the shadow pass draws 22 planes per frame rather than a handful.
+key.shadow.mapSize.set(1024, 1024);
 key.shadow.camera.near = 1;
-key.shadow.camera.far = 40;
-key.shadow.camera.left = -12; key.shadow.camera.right = 12;
-key.shadow.camera.top = 12; key.shadow.camera.bottom = -12;
+key.shadow.camera.far = 26;
+key.shadow.camera.left = -7; key.shadow.camera.right = 7;
+key.shadow.camera.top = 7; key.shadow.camera.bottom = -7;
 key.shadow.bias = -0.0006;
 key.shadow.normalBias = 0.02;
 scene.add(key);
@@ -68,27 +75,66 @@ const rim = new THREE.DirectionalLight(0x8a5cff, 1.1);
 rim.position.set(-6, 4, -5);
 scene.add(rim);
 
-scene.add(new THREE.HemisphereLight(0x2a2a4a, 0x0a0a12, 0.55));
+const hemi = new THREE.HemisphereLight(0x2a2a4a, 0x0a0a12, 0.55);
+scene.add(hemi);
 
-// --- ground. A dark plane that only receives shadow keeps the fighters
-// anchored without competing with them for attention.
-const groundMat = new THREE.MeshStandardMaterial({ color: 0x0a0a14, roughness: 0.55, metalness: 0.1 });
-const ground = new THREE.Mesh(new THREE.CircleGeometry(11, 64), groundMat);
-ground.rotation.x = -Math.PI / 2;
-ground.receiveShadow = true;
-scene.add(ground);
+// The stage owns the fog, the background colour and these three lights, because
+// a district is a light as much as it is a place: the Still Quarter has no warm
+// source anywhere in it, and the Gatehouse is lit by a forge.
+const LIGHTS = { key, rim, hemi };
 
-const ring = new THREE.Mesh(
-    new THREE.RingGeometry(8.9, 9.05, 96),
-    new THREE.MeshBasicMaterial({ color: 0x9be8e0, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
-);
-ring.rotation.x = -Math.PI / 2;
-ring.position.y = 0.01;
-scene.add(ring);
+// ---------------------------------------------------------------------------
+// Stage
+// ---------------------------------------------------------------------------
+// The floor, the sky, the skyline and the weather (src/stage.js). Loading is
+// async and deliberately NOT awaited by startMatch: a fight must never wait on
+// a texture. Until the real stage lands the fallback void is already in the
+// scene, so the arena is always legible — the same degrade-don't-block rule the
+// doll atlas follows.
 
-const grid = new THREE.GridHelper(22, 22, 0x1a1a2e, 0x12121f);
-grid.position.y = 0.002;
-scene.add(grid);
+let stage = Stage.fallback().attach(scene, LIGHTS);
+let stageWanted = null;         // id currently being loaded, if any
+
+/**
+ * Compile one subtree, not the whole scene — and hand back the promise.
+ *
+ * `compileAsync(scene, camera)` walks EVERY material in the scene, then polls
+ * each one's `currentProgram.isReady()` on a timer until they all report in.
+ * Disposing a material clears its properties, so if anything in that captured
+ * set is freed before its poll runs, three dereferences `undefined.isReady`
+ * inside a setTimeout — uncaught, unstoppable, and it repeats forever because
+ * the promise never settles. Starting a match compiled the scene INCLUDING the
+ * outgoing stage, whose textures were freed a beat later when the new district
+ * finished loading, which is exactly that sequence.
+ *
+ * Passing the object as the first argument and the scene as `targetScene`
+ * compiles just that subtree against the scene's lighting, so the captured set
+ * only ever holds materials we just created. Callers keep the promise and wait
+ * on it before disposing what they compiled.
+ */
+function compileSubtree(object) {
+    return renderer.compileAsync(object, camera, scene).catch(() => { /* see above */ });
+}
+
+async function setStage(id) {
+    if (!id || stage?.id === id || stageWanted === id) return;
+    stageWanted = id;
+    try {
+        const next = await Stage.load(id);
+        // A second request may have landed while this one was in flight; the
+        // last request wins, and the loser is disposed rather than leaked.
+        if (stageWanted !== id) { next.dispose(); return; }
+        const old = stage;
+        stage = next.attach(scene, LIGHTS);
+        next.compiled = compileSubtree(next.group);
+        // Free the outgoing district only once ITS compile has settled.
+        Promise.resolve(old?.compiled).then(() => old?.dispose());
+    } catch (err) {
+        console.warn(`stage '${id}' failed to load — staying on ${stage?.id}`, err);
+    } finally {
+        if (stageWanted === id) stageWanted = null;
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Fighters (placeholder primitives — swap for GLB at loadFighterModel)
@@ -181,6 +227,9 @@ let engine = null;
 let meshes = [];
 let camRig = null;
 let cpu = null;                // CpuBrain driving slot 1, or null for 2P versus
+// Settles when every shader compile started for the CURRENT fighters is done.
+// teardownMatch waits on it before freeing them — see compileSubtree.
+let meshCompile = Promise.resolve();
 
 // P2 mode cycles on the select screen and persists like the clan pick does.
 // CPU medium is the boot default: solo play must work with zero setup.
@@ -202,7 +251,7 @@ const hex = (n) => '#' + n.toString(16).padStart(6, '0');
  * pairing gets the Registrar's framing so no matchup ships silent.
  * Voices are canon (internal design docs §5).
  */
-function introFor(aKey, bKey) {
+function introFor(aKey, bKey, stageId) {
     const A = CHARACTERS[aKey], B = CHARACTERS[bKey];
     const pair = [aKey, bKey].sort().join('+');
     const REG = { speaker: 'THE REGISTRAR', kanji: '闇', color: '#9BE8E0' };
@@ -220,11 +269,19 @@ function introFor(aKey, bKey) {
         ],
     };
 
-    return RIVAL_INTROS[pair] || [
+    const beats = RIVAL_INTROS[pair] || [
         { ...REG, text: `Twelve bloodlines keep the ward. Tonight, ${A.clan} and ${B.clan} disagree about who keeps which street.` },
         { speaker: A.name, kanji: A.kanji, color: hex(A.color), text: A.voice },
         { speaker: B.name, kanji: B.kanji, color: hex(B.color), text: B.voice },
     ];
+
+    // Name the district before anyone speaks. This is not set dressing: rivals
+    // live at opposite gates, so a grudge is fought AWAY from home (see
+    // stageForMatch) — hearing the away district named is how the player learns
+    // they travelled, without a line of dialogue spent explaining it.
+    const where = STAGE_TITLES[stageId];
+    if (where) beats.unshift({ ...REG, text: `${where.name.toUpperCase()} · ${where.blurb}` });
+    return beats;
 }
 
 /** Remove the current match from the scene so select/rematch starts clean. */
@@ -234,19 +291,54 @@ function teardownMatch() {
     // long couch session of rematches would climb until the context is lost.
     // Dispose on the way out. Textures are per-piece clones, so disposing them
     // with their material is safe — nothing else holds them.
-    for (const m of meshes) {
-        m.traverse((o) => {
-            if (!o.isMesh) return;
-            o.geometry?.dispose();
-            for (const mat of (Array.isArray(o.material) ? o.material : [o.material])) {
-                if (!mat) continue;
-                mat.map?.dispose();
-                mat.dispose();
-            }
-        });
-        scene.remove(m);
-    }
+    //
+    // Un-parent NOW so the next round never renders the old fighters, but free
+    // the GPU objects only once their shader compiles have settled: three's
+    // compileAsync polls the materials it captured, and freeing one mid-flight
+    // throws forever from inside a timer (see compileSubtree). A rematch is a
+    // teardown milliseconds after a compile, so this is the live case, not a
+    // hypothetical one.
+    const doomed = meshes;
+    const pending = meshCompile;
+    for (const m of doomed) scene.remove(m);
     meshes = [];
+    meshCompile = Promise.resolve();
+    Promise.resolve(pending).then(() => {
+        for (const m of doomed) {
+            m.traverse((o) => {
+                if (!o.isMesh) return;
+                o.geometry?.dispose();
+                // `material` is not the only material a mesh can own. Every doll
+                // piece also carries a customDepthMaterial — added so the shadow
+                // pass cuts the piece's silhouette instead of a rectangle — and
+                // it holds its own reference to the piece texture. Disposing only
+                // `material` left 20 depth materials and their maps alive per
+                // match: measured as a steady +20 textures on every rematch, with
+                // geometries flat, which is what pointed at a second material
+                // rather than a missed mesh.
+                for (const mat of [
+                    ...(Array.isArray(o.material) ? o.material : [o.material]),
+                    o.customDepthMaterial, o.customDistanceMaterial,
+                ]) {
+                    if (!mat) continue;
+                    // EVERY texture the material owns, not just `map`.
+                    // `material.dispose()` frees the program, never the textures
+                    // hanging off it, and these materials own more than an
+                    // albedo: createCelMaterial builds a private toon
+                    // `gradientMap` per material, so a doll leaked one ramp per
+                    // PIECE — a measured +20 textures on every rematch that
+                    // disposing `map` alone could never have caught. Walking the
+                    // properties means the next map anyone adds is covered
+                    // without anyone having to remember this comment.
+                    for (const k of Object.keys(mat)) {
+                        if (mat[k] && mat[k].isTexture) mat[k].dispose();
+                    }
+                    mat.dispose();
+                }
+                o.customDepthMaterial = undefined;
+            });
+        }
+    });
     for (const [id, mesh] of projectileMeshes) { scene.remove(mesh); projectileMeshes.delete(id); }
     engine = null;
     camRig = null;
@@ -314,6 +406,12 @@ function startMatch(p1Key, p2Key) {
     const P1_DEF = CHARACTERS[p1Key];
     const P2_DEF = CHARACTERS[p2Key];
 
+    // `?stage=<id>` pins one arena for QA and for shooting stills; without it
+    // the matchup decides (see stageForMatch — rivals fight at the away gate).
+    const stageId = new URLSearchParams(location.search).get('stage') ||
+        stageForMatch(p1Key, p2Key, RIVALS);
+    setStage(stageId);
+
     // Paper-doll rig by default (SPEC-PAPERDOLL.md); `?placeholder=1` keeps
     // the primitive capsules reachable for A/B and as the proven fallback.
     const wantPlaceholder = new URLSearchParams(location.search).has('placeholder');
@@ -324,6 +422,16 @@ function startMatch(p1Key, p2Key) {
     };
     meshes = [buildFighter(P1_DEF), buildFighter(P2_DEF)];
     meshes.forEach((m) => scene.add(m));
+
+    // Compile up front. Three compiles a material's program the first time it is
+    // actually drawn, so without this the cost lands on frame 1 of the round —
+    // measured at 510ms, i.e. a visible half-second freeze exactly as the fight
+    // starts. Doing it here moves the stall into the transition where nothing is
+    // animating yet. The atlas swaps materials asynchronously, so loadAtlas
+    // re-compiles when its pieces land (see paperdoll.js).
+    // Per-fighter, not scene-wide — see compileSubtree for why that distinction
+    // is load-bearing rather than a micro-optimisation.
+    meshCompile = Promise.all(meshes.map(compileSubtree));
 
     engine = new CombatEngine(P1_DEF, P2_DEF, { moves: MOVES, seed: 0xBEEF, roundSeconds: 60 });
     // Debug/QA handle — read-only inspection for browser-qa; nothing in the
@@ -340,7 +448,7 @@ function startMatch(p1Key, p2Key) {
         { name: P2_DEF.name, kanji: P2_DEF.kanji, color: hex(P2_DEF.color), portrait: `./assets/portraits/${p2Key}.webp` }
     );
 
-    overlay.playStory(introFor(p1Key, p2Key)).then(() => {
+    overlay.playStory(introFor(p1Key, p2Key, stageId)).then(() => {
         overlay.wipe();
         overlay.announce('ROUND 1', '闘');
     });
@@ -393,7 +501,7 @@ function showSelect() {
             `<div class="sc-kanji">${def.kanji}</div>` +
             `<div class="sc-name">${def.name}</div>` +
             `<div class="sc-arch">${def.archetype}</div>` +
-            `<div class="sc-clan">${def.clanKey ? `<img class="sc-crest" src="./assets/crests/${def.clanKey}.png" alt="" onerror="this.remove()">` : ''}${def.clan} · ${def.sign}</div>` +
+            `<div class="sc-clan">${def.clanKey ? `<img class="sc-crest" src="./assets/crests/${def.clanKey}.webp" alt="" onerror="this.remove()">` : ''}${def.clan} · ${def.sign}</div>` +
             `<div class="sc-blurb">${def.blurb}</div>` +
             (keyName === residentPick ? '<div class="sc-resident">YOUR BLOODLINE</div>' : '');
         card.addEventListener('click', () => pick(i));
@@ -587,6 +695,18 @@ function syncMeshes(dt) {
 
         // Paper-doll path: pose evaluator + billboard live in the doll.
         if (ud.doll) {
+            // The atlas lands mid-match and swaps every piece's material, which
+            // invalidates their compiled programs. Compile the new set once, here,
+            // rather than paying for it scattered across the next frames as each
+            // piece first becomes visible.
+            if (ud.doll.needsCompile) {
+                ud.doll.needsCompile = false;
+                // compileAsync, not compile: the synchronous form still costs the
+                // full ~500ms and merely moves WHICH frame stutters. The async form
+                // hands the work to the driver's parallel-compile extension and
+                // resolves later, so no single frame eats it.
+                meshCompile = Promise.all([meshCompile, compileSubtree(g)]);
+            }
             ud.doll.update(f, dt, camera);
             if (ud.flash > 0) {
                 ud.flash = Math.max(0, ud.flash - dt * 6);
@@ -640,6 +760,7 @@ function frame(now) {
     acc += dt;
 
     if (!engine) {                      // still on character select
+        stage?.update(dt);              // the arena keeps breathing behind the menu
         renderer.render(scene, camera);
         acc = 0;
         return;
@@ -658,6 +779,7 @@ function frame(now) {
     handleEvents();
     syncMeshes(dt);
     syncProjectiles();
+    stage?.update(dt);
     camRig.update(dt);
 
     fpsAcc += dt; fpsFrames++;
@@ -692,6 +814,19 @@ resize();
 camera.position.set(0, 3.2, 10.5);
 camera.lookAt(0, 1.2, 0);
 
+// The select screen sits in a real district, not a void. Where the visitor is a
+// registered resident we open on THEIR gate — same localStorage key the roster
+// highlight reads, so the game greets them at home before they pick anyone.
+{
+    let boot = 'gatehouse';         // Tetsuki's yard: the tutorial home (CH.1)
+    try {
+        const clan = (localStorage.getItem('yd_clan') || '').toLowerCase();
+        const champ = clan && ROSTER.find((k) => CHARACTERS[k].clan.toLowerCase().startsWith(clan));
+        if (champ && STAGE_FOR[champ]) boot = STAGE_FOR[champ];
+    } catch { /* storage unavailable — fine */ }
+    setStage(new URLSearchParams(location.search).get('stage') || boot);
+}
+
 showSelect();
 requestAnimationFrame(frame);
 
@@ -700,8 +835,11 @@ requestAnimationFrame(frame);
 // rAF) can still drive and assert the full match loop.
 window.YAMIWARD = {
     get engine() { return engine; }, get camRig() { return camRig; },
-    overlay, scene, renderer, MOVES, CHARACTERS, ROSTER, RIVALS,
+    overlay, scene, renderer, camera, MOVES, CHARACTERS, ROSTER, RIVALS,
+    get stage() { return stage; }, setStage, stageForMatch, STAGE_FOR,
     startMatch, showSelect, rematch, backToSelect, handleEvents, readInput,
     CpuBrain, CPU_LEVELS, get cpu() { return cpu; },
     setP2Mode(m) { if (P2_MODES.includes(m)) p2Mode = m; return p2Mode; },
 };
+
+// yw-202608072249-fb0c2f

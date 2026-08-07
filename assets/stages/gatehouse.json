@@ -1,0 +1,187 @@
+{
+  "id": "gatehouse",
+  "name": "The Gatehouse Yard",
+  "clan": "ONI 鬼",
+  "sign": "Feb · Air",
+  "blurb": "The exile district that still guards the door.",
+  "horizon": 0.36,
+  "palette": {
+    "background": 1182216,
+    "fog": 2168595,
+    "fogDensity": 0.02,
+    "key": 16765088,
+    "keyIntensity": 2.6,
+    "rim": 16738858,
+    "rimIntensity": 1.15,
+    "hemiSky": 3810328,
+    "hemiGround": 1182470,
+    "hemiIntensity": 0.55,
+    "ring": 16752724,
+    "landmarkTint": 9069638,
+    "groundTint": 9071700
+  },
+  "motes": {
+    "kind": "ember",
+    "count": 220,
+    "color": 16747066,
+    "size": 0.075,
+    "rise": 0.85,
+    "drift": 0.35
+  },
+  "sky": {
+    "file": "gatehouse-sky.webp",
+    "radius": 34,
+    "height": 33.9,
+    "repeat": 4
+  },
+  "ground": {
+    "file": "gatehouse-ground.webp",
+    "radius": 34,
+    "repeat": 26
+  },
+  "sourcePlates": {
+    "sky": "sky-alt.jpg",
+    "ground": "ground.png"
+  },
+  "landmarks": {
+    "file": "gatehouse-lm.webp",
+    "size": [
+      1907,
+      949
+    ],
+    "rects": {
+      "gate": [
+        387,
+        0,
+        830,
+        856
+      ],
+      "forge": [
+        1219,
+        0,
+        686,
+        815
+      ],
+      "post": [
+        0,
+        0,
+        385,
+        949
+      ]
+    },
+    "layout": [
+      {
+        "key": "gate",
+        "angle": -0.0858,
+        "radius": 22.2,
+        "height": 9.23,
+        "width": 8.95,
+        "flip": false
+      },
+      {
+        "key": "post",
+        "angle": 0.4665,
+        "radius": 32.05,
+        "height": 8.3,
+        "width": 3.37,
+        "flip": true
+      },
+      {
+        "key": "forge",
+        "angle": 0.7753,
+        "radius": 25.86,
+        "height": 6.65,
+        "width": 5.6,
+        "flip": false
+      },
+      {
+        "key": "post",
+        "angle": 1.3205,
+        "radius": 32.47,
+        "height": 7.54,
+        "width": 3.06,
+        "flip": false
+      },
+      {
+        "key": "gate",
+        "angle": 1.9002,
+        "radius": 25.24,
+        "height": 11.06,
+        "width": 10.72,
+        "flip": false
+      },
+      {
+        "key": "post",
+        "angle": 2.219,
+        "radius": 32.76,
+        "height": 8.79,
+        "width": 3.57,
+        "flip": false
+      },
+      {
+        "key": "forge",
+        "angle": 2.6485,
+        "radius": 25.08,
+        "height": 6.58,
+        "width": 5.54,
+        "flip": true
+      },
+      {
+        "key": "post",
+        "angle": 3.0269,
+        "radius": 31.03,
+        "height": 7.53,
+        "width": 3.05,
+        "flip": false
+      },
+      {
+        "key": "gate",
+        "angle": 3.6681,
+        "radius": 23.7,
+        "height": 9.25,
+        "width": 8.97,
+        "flip": false
+      },
+      {
+        "key": "post",
+        "angle": 3.982,
+        "radius": 31.5,
+        "height": 8.89,
+        "width": 3.61,
+        "flip": true
+      },
+      {
+        "key": "forge",
+        "angle": 4.4977,
+        "radius": 22.74,
+        "height": 5.5,
+        "width": 4.63,
+        "flip": false
+      },
+      {
+        "key": "post",
+        "angle": 4.8285,
+        "radius": 32.81,
+        "height": 8.57,
+        "width": 3.48,
+        "flip": true
+      },
+      {
+        "key": "gate",
+        "angle": 5.3182,
+        "radius": 24.48,
+        "height": 9.74,
+        "width": 9.45,
+        "flip": false
+      },
+      {
+        "key": "post",
+        "angle": 5.8994,
+        "radius": 29.4,
+        "height": 8.26,
+        "width": 3.35,
+        "flip": true
+      }
+    ]
+  }
+}

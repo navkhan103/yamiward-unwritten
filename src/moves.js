@@ -660,7 +660,7 @@ export const CHARACTERS = {
         voice: 'You are watching the mask. That is the whole trick, and I told you.',
     },
 
-    // --- Season-drop four (Forms per STORY-BIBLE §4, authored 2026-08-07) ---
+    // --- Season-drop four (Forms per the story bible §4, authored 2026-08-07) ---
     // Accent colours are picked for HUD SEPARATION as much as for canon. Three
     // of these four are canonically purple-family (Shigure violet, Tsukimi
     // lilac, Kazakiri plum) and the launch four already own red + three cools,
@@ -723,18 +723,20 @@ export const CHARACTERS = {
 
 /**
  * Rival pairings. Canon rivals are polarity opposites — opposite months, exact
- * astrological poles (STORY-BIBLE §3). With the season-drop four in the roster,
- * three of the six canon pairs are now both-present and are wired as such:
+ * astrological poles. Three of the six canon pairs are both-present in the
+ * launch roster and are wired as such:
  *   tetsuki <-> raiga    Aquarius <-> Leo   (outcast vs crowd)
  *   mayoi   <-> tsukimi  Pisces   <-> Virgo (dream vs precision)
  *   shigure <-> yumihari Gemini   <-> Sagittarius (wander vs choose)
  *
- * Yukiwari's true rival is KAGARI and Kazakiri's is KAWATARO; both are still
- * season-drop, so those two are paired with each other as an explicit STAND-IN.
- * It is a zoner mirror, which at least reads as a real fight — but it is not
- * canon, and §4's fallback ("else that route's polarity theme against an
- * Eclipsed shadow") is the better answer once the story mode carries it.
- * Repoint these the moment Kagari and Kawataro ship.
+ * Yukiwari and Kazakiri are paired with each other as an explicit STAND-IN:
+ * each one's true opposite is a champion who has not shipped. It is a zoner
+ * mirror, which at least reads as a real fight, but it is not canon — repoint
+ * both the moment their real opposites land.
+ *
+ * NOTE: this file ships to the client verbatim, so the unshipped champions are
+ * not named here and must not be. release-check.mjs enforces that; the pairings
+ * they belong to are recorded in the design log, which does not ship.
  */
 export const RIVALS = {
     tetsuki: 'raiga', raiga: 'tetsuki',

@@ -1,0 +1,171 @@
+{
+  "id": "still",
+  "name": "The Still Quarter",
+  "clan": "YUKIONNA 雪女",
+  "sign": "Jan · Earth",
+  "blurb": "Snow that never melts, because nothing here ever changes.",
+  "horizon": 0.05,
+  "palette": {
+    "background": 527380,
+    "fog": 1784416,
+    "fogDensity": 0.026,
+    "key": 15266559,
+    "keyIntensity": 2.4,
+    "rim": 8378623,
+    "rimIntensity": 1.2,
+    "hemiSky": 2767448,
+    "hemiGround": 856608,
+    "hemiIntensity": 0.7,
+    "ring": 10479359,
+    "landmarkTint": 9413565,
+    "groundTint": 11058902
+  },
+  "motes": {
+    "kind": "snow",
+    "count": 340,
+    "color": 14676223,
+    "size": 0.07,
+    "rise": -0.55,
+    "drift": 0.55
+  },
+  "sky": {
+    "file": "still-sky.webp",
+    "radius": 34,
+    "height": 25.3,
+    "repeat": 4
+  },
+  "ground": {
+    "file": "still-ground.webp",
+    "radius": 34,
+    "repeat": 26
+  },
+  "sourcePlates": {
+    "sky": "sky.png",
+    "ground": "ground.png"
+  },
+  "landmarks": {
+    "file": "still-lm.webp",
+    "size": [
+      1678,
+      1885
+    ],
+    "rects": {
+      "teahouse": [
+        0,
+        998,
+        926,
+        887
+      ],
+      "lantern": [
+        0,
+        0,
+        758,
+        996
+      ],
+      "tree": [
+        760,
+        0,
+        916,
+        937
+      ]
+    },
+    "layout": [
+      {
+        "key": "teahouse",
+        "angle": -0.0883,
+        "radius": 25.88,
+        "height": 7.8,
+        "width": 8.14,
+        "flip": false
+      },
+      {
+        "key": "tree",
+        "angle": 0.6434,
+        "radius": 31.35,
+        "height": 7.1,
+        "width": 6.94,
+        "flip": true
+      },
+      {
+        "key": "lantern",
+        "angle": 1.0149,
+        "radius": 22.31,
+        "height": 3.05,
+        "width": 2.32,
+        "flip": true
+      },
+      {
+        "key": "tree",
+        "angle": 1.4638,
+        "radius": 31.71,
+        "height": 8.12,
+        "width": 7.94,
+        "flip": false
+      },
+      {
+        "key": "teahouse",
+        "angle": 2.2228,
+        "radius": 23.68,
+        "height": 6.71,
+        "width": 7.01,
+        "flip": true
+      },
+      {
+        "key": "tree",
+        "angle": 2.5421,
+        "radius": 30.51,
+        "height": 8.43,
+        "width": 8.24,
+        "flip": false
+      },
+      {
+        "key": "lantern",
+        "angle": 3.2112,
+        "radius": 22.63,
+        "height": 3.48,
+        "width": 2.65,
+        "flip": false
+      },
+      {
+        "key": "tree",
+        "angle": 3.6101,
+        "radius": 30.29,
+        "height": 7.86,
+        "width": 7.68,
+        "flip": false
+      },
+      {
+        "key": "teahouse",
+        "angle": 4.0773,
+        "radius": 22.25,
+        "height": 7.29,
+        "width": 7.61,
+        "flip": true
+      },
+      {
+        "key": "tree",
+        "angle": 4.7937,
+        "radius": 31.61,
+        "height": 8.65,
+        "width": 8.45,
+        "flip": true
+      },
+      {
+        "key": "lantern",
+        "angle": 5.2473,
+        "radius": 24.22,
+        "height": 3.59,
+        "width": 2.73,
+        "flip": false
+      },
+      {
+        "key": "tree",
+        "angle": 5.6488,
+        "radius": 32.87,
+        "height": 8.84,
+        "width": 8.65,
+        "flip": false
+      }
+    ]
+  }
+}

@@ -16,12 +16,12 @@
  *   untextured — cel-shaded colored planes in the fighter's palette. Always
  *                available; this alone replaces the capsule placeholder.
  *   atlas      — assets/dolls/<key>.webp + <key>.json {piece:{rect,pivot,size}}
- *                cut from LoRA renders. Loaded async; pieces re-skin in place
+ *                cut from character renders. Loaded async; pieces re-skin in place
  *                when it lands. Missing atlas is not an error.
  *
  * The clan mark (§3): a band quad on the near forearm, crest silhouette
- * knocked out at runtime from assets/crests/<clanKey>.png, tinted def.color.
- * Composited, never model output — small regions are where LoRAs drift.
+ * knocked out at runtime from assets/crests/<clanKey>.webp, tinted def.color.
+ * Composited, never model output — small regions are where generators drift.
  */
 
 import * as THREE from 'three';
@@ -56,7 +56,7 @@ const HIP_Y = 0.95;   // guard-neutral hip height; root.y offsets are relative
 /**
  * Robe variant: identical from the hips up, but the four leg pieces are replaced
  * by ONE robe plane hanging from the hips. Built for Yukiwari, whose canon
- * costume (STORY-BIBLE §5) is a floor-length kimono — she has no separable
+ * costume (story bible §5) is a floor-length kimono — she has no separable
  * lower legs to cut, and faking a leg split under the robe would invent art.
  * The robe is not animated by clips: its sway is DERIVED from the leg channels
  * the clips already carry (walk scissor -> sway, sweep -> swish), so every
@@ -144,7 +144,7 @@ function makeMarkTexture(clanKey) {
             tex.needsUpdate = true;
         };
         img.onerror = () => { /* band stays solid — still a clan-colored mark */ };
-        img.src = `./assets/crests/${clanKey}.png`;
+        img.src = `./assets/crests/${clanKey}.webp`;
     }
     return tex;
 }
@@ -385,17 +385,44 @@ export function buildDoll(def) {
                     const [x, y, w, h] = m.rect;   // px in atlas
                     pieceTex.repeat.set(w / tex.image.width, h / tex.image.height);
                     pieceTex.offset.set(x / tex.image.width, 1 - (y + h) / tex.image.height);
+                    // Mipmaps are WRONG for an atlas sub-rect: lower levels average
+                    // across the whole sheet, so a shrinking piece bleeds its
+                    // neighbours' pixels in. Linear filtering only, and clamp so the
+                    // repeat/offset window can never wrap onto an adjacent piece.
+                    pieceTex.generateMipmaps = false;
+                    pieceTex.minFilter = THREE.LinearFilter;
+                    pieceTex.magFilter = THREE.LinearFilter;
+                    pieceTex.wrapS = THREE.ClampToEdgeWrapping;
+                    pieceTex.wrapT = THREE.ClampToEdgeWrapping;
+                    pieceTex.anisotropy = 8;
+
                     const pm = createCelMaterial({
                         color: 0xffffff, rimColor: def.rimColor,
                         rimPower: 2.1, rimStrength: 1.1, steps: 3, map: pieceTex,
                     });
-                    pm.transparent = true;
-                    pm.alphaTest = 0.35;
+                    // CUTOUT, NOT BLEND. `transparent: true` moves a piece into the
+                    // transparent queue: it gets depth-sorted by centroid every frame
+                    // with no depth write against its siblings, so overlapping limbs
+                    // pop in front of each other as the camera orbits — the single
+                    // biggest source of the doll looking "wrong" in motion. Alpha
+                    // TESTING renders it as opaque geometry with real depth, which is
+                    // both correct for hard-edged art and materially cheaper.
+                    pm.transparent = false;
+                    pm.alphaTest = 0.5;
+                    pm.depthWrite = true;
                     pm.side = THREE.DoubleSide;
                     const mesh = joints.get(p.id).children[0];
                     if (m.size) mesh.geometry = new THREE.PlaneGeometry(m.size[0], m.size[1]);
                     mesh.material = pm;
-                    mesh.customDepthMaterial = undefined;
+                    // The shadow pass uses its own material and does NOT inherit the
+                    // colour material's map or alphaTest. Leaving it default made every
+                    // piece cast a full RECTANGLE — eight fighters throwing box shadows.
+                    // Give the depth pass the same cutout so shadows take the silhouette.
+                    mesh.customDepthMaterial = new THREE.MeshDepthMaterial({
+                        depthPacking: THREE.RGBADepthPacking,
+                        map: pieceTex,
+                        alphaTest: 0.5,
+                    });
 
                     // Art-driven rig. The RIG constants above were authored for
                     // untextured cel planes; real art has its own limb lengths and
@@ -448,6 +475,10 @@ export function buildDoll(def) {
                     // sit it on the forearm's mid-shaft, just in front of the plane
                     mark.position.set(foreMesh.position.x, foreMesh.position.y + fh * 0.12, 0.006);
                 }
+                // The swap above replaced every piece's material, so their programs
+                // are uncompiled again. Compile now — during the load, not on the
+                // first frame the player sees.
+                doll.needsCompile = true;
                 return true;
             } catch { return false; }
         },

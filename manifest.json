@@ -1,0 +1,282 @@
+{
+ "build": "yw-202608072249-fb0c2f",
+ "created": "2026-08-07T22:49:53.927Z",
+ "files": {
+  "assets/crests/ameonna.webp": {
+   "sha256": "0ce90c85bfe8bc05a86b8ce931cc4ce1bf6ca9500c575b1fb7ed68447bc9abeb",
+   "bytes": 12032
+  },
+  "assets/crests/bakeneko.webp": {
+   "sha256": "f0ef9737f6c6ff6ed41be6cf21388fcea09e47682a813ca92f24dd6002210289",
+   "bytes": 12654
+  },
+  "assets/crests/hitodama.webp": {
+   "sha256": "81ca8f059279c351ce9987ac4fbaf3a237415f614a40e840ea1b97df9d9afb7c",
+   "bytes": 12314
+  },
+  "assets/crests/kappa.webp": {
+   "sha256": "2539f96907993f9a20844dbf6bd3117dfa517b2b8e43c54f8abc9ccd63373743",
+   "bytes": 11126
+  },
+  "assets/crests/kitsune.webp": {
+   "sha256": "0bc9999f858c67dcee0538a1448b059f868634cbe019dd4442121247d7f73287",
+   "bytes": 13136
+  },
+  "assets/crests/kodama.webp": {
+   "sha256": "9ea3245f2fd8316e628ee2abf31bd80b5d0cde749e55334134d589ff40e9f5a7",
+   "bytes": 12154
+  },
+  "assets/crests/oni.webp": {
+   "sha256": "feb7f54d903222ce0398b7bfe3ffddbca5c068286b23cd8195170601407e99f2",
+   "bytes": 10450
+  },
+  "assets/crests/raiju.webp": {
+   "sha256": "49ad145d1dfdfa1f1dc59c35cc2fe0582d41006f19c69e574c0d95ec5d550256",
+   "bytes": 11976
+  },
+  "assets/crests/ryu.webp": {
+   "sha256": "7146f7051415e87d6b050b406a5791f2dd28cb322eb3657d6e6d270b4bca13da",
+   "bytes": 11178
+  },
+  "assets/crests/tengu.webp": {
+   "sha256": "57cd48715afc7d4bf7ce65c70fc3cf49cb9eb8d7ea06f3cdb9f0a1a268e55e93",
+   "bytes": 11676
+  },
+  "assets/crests/tsukiusagi.webp": {
+   "sha256": "602864dc9e9a2027470ef73a52b1182d0922b16523127b82a2547d3a4ae207d6",
+   "bytes": 11866
+  },
+  "assets/crests/yukionna.webp": {
+   "sha256": "2c7cbe670884eb7874e3a40afa43fa99084831ba84ea32d32a369ba202771330",
+   "bytes": 11850
+  },
+  "assets/dolls/kazakiri.json": {
+   "sha256": "47f6d8fe161f2eca2e724fe35e744dd2335745e2cd2fea5e16cbeb74f6efe8ad",
+   "bytes": 3035
+  },
+  "assets/dolls/kazakiri.webp": {
+   "sha256": "2703c34fff274abe1428773873c59229c1694cb9ecf6e59aae10669456ee1def",
+   "bytes": 76932
+  },
+  "assets/dolls/mayoi.json": {
+   "sha256": "679f2c8511502a8e4b6c2e6d3615996e0aba5927e7b0a7045769e0948c7ce8dd",
+   "bytes": 3370
+  },
+  "assets/dolls/mayoi.webp": {
+   "sha256": "96b2c60aade4b539593ab696c30fdda8eebba46e8ae2aa288236de5c36e7bdc8",
+   "bytes": 65288
+  },
+  "assets/dolls/raiga.json": {
+   "sha256": "8f3fb7f76b08ecc5ba89605d043c07f8861ab425b7f87d754f8ce12d616b2a1a",
+   "bytes": 3388
+  },
+  "assets/dolls/raiga.webp": {
+   "sha256": "19cbcb55848c06434de5d7bc2f21fa6b5593d19201f5174a0e4a254298f2c980",
+   "bytes": 71552
+  },
+  "assets/dolls/shigure.json": {
+   "sha256": "9b434603d199066ca13f29343e908c61eaf28d4e65f77fc1e951eaa117c9887d",
+   "bytes": 2442
+  },
+  "assets/dolls/shigure.webp": {
+   "sha256": "a791b0dad9ac94df0a303e54cb36bfff7e95f7a1b50e2c1069a0f4f8bc79cd2d",
+   "bytes": 50284
+  },
+  "assets/dolls/tetsuki.json": {
+   "sha256": "246339344eb5a1e6da90700ae115cfa423a25cfb3c484585ec51a23cbbd37b6d",
+   "bytes": 3388
+  },
+  "assets/dolls/tetsuki.webp": {
+   "sha256": "7e1113105a63560f313c0b4e27940ce64e4f17b549ec0f5b79be4d80c61542d0",
+   "bytes": 88742
+  },
+  "assets/dolls/tsukimi.json": {
+   "sha256": "6cb7ed317263921bed456a51546d9ba03bf4af9953950e33424dbf1027bb2408",
+   "bytes": 3393
+  },
+  "assets/dolls/tsukimi.webp": {
+   "sha256": "b508569d1016dd70a4285d62e0e9463f8ff95b3897429f8f6d806f29c9e3cba6",
+   "bytes": 58292
+  },
+  "assets/dolls/yukiwari.json": {
+   "sha256": "532043950abde0993191ee36b1d3f44000522c0c01bf37cd3ab6c0654da2d1fa",
+   "bytes": 2437
+  },
+  "assets/dolls/yukiwari.webp": {
+   "sha256": "3557c0045174c198a3a87b0f66814b97d02208f1c4a55e63a5f011f48c3c6c1c",
+   "bytes": 73010
+  },
+  "assets/dolls/yumihari.json": {
+   "sha256": "302c8facfb01116967ff414b2b71bc0ec41ac223b08b120ca931572659d5f460",
+   "bytes": 2452
+  },
+  "assets/dolls/yumihari.webp": {
+   "sha256": "aef347cb7d40a1715db67dcc943b102e8053655bbd0bd99e7b8da2a24a860870",
+   "bytes": 75812
+  },
+  "assets/portraits/kazakiri.webp": {
+   "sha256": "3ad8e57a408b89fd003f29ccebe36a35f6a353294d18f7f7e6a400bd40c60838",
+   "bytes": 23018
+  },
+  "assets/portraits/mayoi.webp": {
+   "sha256": "6197d32902a62c5d0e2ba71d001d60be45c20792477845938da6b8d697a96ec2",
+   "bytes": 33430
+  },
+  "assets/portraits/raiga.webp": {
+   "sha256": "0842a701d08853659dde78dc3482258466fe38180e275c2632fbed47ed094250",
+   "bytes": 44436
+  },
+  "assets/portraits/shigure.webp": {
+   "sha256": "11be9e32821cd01e0541fe26c917f80ad0972371b1bade05e4859695fd66d8e9",
+   "bytes": 24216
+  },
+  "assets/portraits/tetsuki.webp": {
+   "sha256": "60a4bf76c8b5fb33053b8e1494b0f95a65ba7570ba4f499836fc267badf71560",
+   "bytes": 42712
+  },
+  "assets/portraits/tsukimi.webp": {
+   "sha256": "fe060969f7da8eb778b90b31f92147406d711647a23e4496dccc0a2b0411cf5d",
+   "bytes": 28098
+  },
+  "assets/portraits/yukiwari.webp": {
+   "sha256": "07961a57b04196bf3b0046f5c2488d1a94b02e61b4e867875d33a8118e1f5e08",
+   "bytes": 27892
+  },
+  "assets/portraits/yumihari.webp": {
+   "sha256": "d4ec11c9a13c07576538ea9739257c1f35fe66000c4200d27ac787ebe330a0cd",
+   "bytes": 36552
+  },
+  "assets/stages/gatehouse-ground.webp": {
+   "sha256": "82fcb7ad31f4770730668224abd15ce4373501b7ed06868911de95f3456a5b42",
+   "bytes": 25594
+  },
+  "assets/stages/gatehouse-lm.webp": {
+   "sha256": "4a4467ec5cb4b590569ea8e9e6216deaeb59d847d52cb251e191d780269914a8",
+   "bytes": 226552
+  },
+  "assets/stages/gatehouse-sky.webp": {
+   "sha256": "1830bb3a3f4189c7bf2e54cf19b71db5a80ad0f3e26ed9a0cd1206dabc07ade2",
+   "bytes": 123770
+  },
+  "assets/stages/gatehouse.json": {
+   "sha256": "5c6515bd9a51c02407cfadb046073fc74a6f86e8777c7eb0b97ee77dace2ccbb",
+   "bytes": 3507
+  },
+  "assets/stages/lantern-ground.webp": {
+   "sha256": "3268eaf2379f97e5054194f504b222c2d9d772b8eaebf6a2ecd307064b9e559e",
+   "bytes": 82628
+  },
+  "assets/stages/lantern-lm.webp": {
+   "sha256": "a7e376816d13a2baa9da5051f36f86acf73dc5ea745c0d87f50abd6acd0df20e",
+   "bytes": 148130
+  },
+  "assets/stages/lantern-sky.webp": {
+   "sha256": "1179f9759dd6853518966fbd2e8cb5814a06266ef9b1e234bcd770865c6a8106",
+   "bytes": 183080
+  },
+  "assets/stages/lantern.json": {
+   "sha256": "94d1745757eb1a84c4034a975ecde246422a3b6f410f616935e0cfb29c79c06c",
+   "bytes": 3832
+  },
+  "assets/stages/spotlight-ground.webp": {
+   "sha256": "e2610ee1aad2c901bf7becc8b4d09c517c9583999e02cf3d6d3e2720fe441a20",
+   "bytes": 9154
+  },
+  "assets/stages/spotlight-lm.webp": {
+   "sha256": "4ef7f1b24f7fe9559502b24a0301221d2cd54b0c5099fb9fceb034999af3335d",
+   "bytes": 226244
+  },
+  "assets/stages/spotlight-sky.webp": {
+   "sha256": "f606c63a2de4f75fbb4ebcbf40ea6af92a7e818945f8f6fcf6a588623b59eb2b",
+   "bytes": 55356
+  },
+  "assets/stages/spotlight.json": {
+   "sha256": "582498adddc66eea190b2553b4c7ce57eb13a5ea3cdeb188bcaba96a9061f945",
+   "bytes": 3525
+  },
+  "assets/stages/still-ground.webp": {
+   "sha256": "82f8bad1dd44638617969464f5cd2b6bd485c1e4b2251296a7511c5567ade675",
+   "bytes": 12364
+  },
+  "assets/stages/still-lm.webp": {
+   "sha256": "7b0db24d9e81b333dde4061a132d02da1f1a1a968edd13c3d8342c2bb307100e",
+   "bytes": 211534
+  },
+  "assets/stages/still-sky.webp": {
+   "sha256": "ac641221088b0933e29b38b7c7e17337e6bff42926f89c023e780d2f080e2024",
+   "bytes": 98594
+  },
+  "assets/stages/still.json": {
+   "sha256": "311655b15f6746b5629e2a73038d33a13cc8d78b419e4a1dbab277bf38419000",
+   "bytes": 3214
+  },
+  "index.html": {
+   "sha256": "033ed6afe34f1308a9c3dbd7204cca6f0b4240839ad3c01c601c91f0fd2eecf7",
+   "bytes": 5353
+  },
+  "src/CombatEngine.js": {
+   "sha256": "69774f76a20528de5ab9f6f47eace336f45c01e208bc094e351200305b61b6d7",
+   "bytes": 34985
+  },
+  "src/TekkenCamera.js": {
+   "sha256": "71a4821bf138031819ad191cd1f788e535d6236df1fbed2a8369ab2b55dc8286",
+   "bytes": 8034
+  },
+  "src/celShader.js": {
+   "sha256": "72ac73399cd185ee0f5abd566de258f40df4e75eaad99ffb4eca3d1672e99b11",
+   "bytes": 5129
+  },
+  "src/cpu.js": {
+   "sha256": "50468a8c9651e14a551c2c5e19710079ce3c8fe89fc1ff1e7fb4411c67a2f149",
+   "bytes": 12673
+  },
+  "src/dollPoses.js": {
+   "sha256": "1f84bcceca467f157f836d73f4fefc0c11a3deb7f849f7ab1c9c8af987d8dd02",
+   "bytes": 8129
+  },
+  "src/hitsparks.js": {
+   "sha256": "51984a419072eaee82c7ed9c703505cce27db55b737aa1f755e2c6c95dafa5c3",
+   "bytes": 13128
+  },
+  "src/lookLab.js": {
+   "sha256": "b880ce9ab2f54850d7c59630a8e173eac85ea7c95c2bd9079dbcc47c1476887f",
+   "bytes": 12737
+  },
+  "src/main.js": {
+   "sha256": "371fc86a0cf16126540d1d36b10ad31a79ee2da6ecb932553df005409046cc70",
+   "bytes": 38319
+  },
+  "src/moves.js": {
+   "sha256": "2d83ee6e63aa9000540228b9421f833e41e95a2c49727e4affb47049d43ab60a",
+   "bytes": 39758
+  },
+  "src/outline.js": {
+   "sha256": "80616751af46050f1ba8fa8c98a6534f92f684713f3faba7999e51792516183b",
+   "bytes": 9854
+  },
+  "src/overlay.js": {
+   "sha256": "4f67d472fab085e6f3b012cccb0e14770013076b21fd4fb84ecd6563169f3a02",
+   "bytes": 8066
+  },
+  "src/paperdoll.js": {
+   "sha256": "66e1cf2cae29d9b54003f7669b7c47a74db2c02b3504b1b71f299777644c1a48",
+   "bytes": 25599
+  },
+  "src/stage.js": {
+   "sha256": "53264d16208032e61acd504a3fe0fc81f8786b0b9639bcaf7a90d048f6934861",
+   "bytes": 22587
+  },
+  "src/vertexNormals.js": {
+   "sha256": "75bbd0a5ca6218d7132dcf3f37769740b1b6823d137132666a09db53a47c8a0c",
+   "bytes": 6028
+  },
+  "styles.css": {
+   "sha256": "d2f930aed87b2e6f71f4b40bd4227adc7183e3948a136917936a875ffa6140d0",
+   "bytes": 16552
+  },
+  "vendor/three.module.js": {
+   "sha256": "0a3368c165eea773490aec7b77c22de70e3eac288503409256fdbf4d12578416",
+   "bytes": 1304820
+  }
+ }
+}

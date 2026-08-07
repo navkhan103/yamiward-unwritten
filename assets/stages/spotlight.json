@@ -1,0 +1,187 @@
+{
+  "id": "spotlight",
+  "name": "The Spotlight Roof",
+  "clan": "RAIJU 雷獣",
+  "sign": "Aug · Fire",
+  "blurb": "Rooftops over a city that never stops looking up.",
+  "horizon": 0.06,
+  "palette": {
+    "background": 460303,
+    "fog": 1055781,
+    "fogDensity": 0.022,
+    "key": 15002879,
+    "keyIntensity": 2.5,
+    "rim": 4905215,
+    "rimIntensity": 1.35,
+    "hemiSky": 2238538,
+    "hemiGround": 657940,
+    "hemiIntensity": 0.6,
+    "ring": 7137023,
+    "landmarkTint": 6977168,
+    "groundTint": 7766940
+  },
+  "motes": {
+    "kind": "rain",
+    "count": 420,
+    "color": 10475775,
+    "size": 0.055,
+    "rise": -3.4,
+    "drift": 0.5
+  },
+  "sky": {
+    "file": "spotlight-sky.webp",
+    "radius": 34,
+    "height": 25.3,
+    "repeat": 4
+  },
+  "ground": {
+    "file": "spotlight-ground.webp",
+    "radius": 34,
+    "repeat": 26
+  },
+  "sourcePlates": {
+    "sky": "sky.png",
+    "ground": "ground.png"
+  },
+  "landmarks": {
+    "file": "spotlight-lm.webp",
+    "size": [
+      1671,
+      953
+    ],
+    "rects": {
+      "sign": [
+        0,
+        0,
+        404,
+        953
+      ],
+      "billboard": [
+        406,
+        0,
+        805,
+        879
+      ],
+      "tank": [
+        1213,
+        0,
+        456,
+        851
+      ]
+    },
+    "layout": [
+      {
+        "key": "sign",
+        "angle": -0.0858,
+        "radius": 22.2,
+        "height": 10.15,
+        "width": 4.3,
+        "flip": false
+      },
+      {
+        "key": "tank",
+        "angle": 0.4665,
+        "radius": 32.05,
+        "height": 5.7,
+        "width": 3.06,
+        "flip": true
+      },
+      {
+        "key": "billboard",
+        "angle": 0.7753,
+        "radius": 25.86,
+        "height": 9.97,
+        "width": 9.13,
+        "flip": false
+      },
+      {
+        "key": "tank",
+        "angle": 1.3205,
+        "radius": 32.47,
+        "height": 5.19,
+        "width": 2.78,
+        "flip": false
+      },
+      {
+        "key": "sign",
+        "angle": 1.9002,
+        "radius": 25.24,
+        "height": 12.17,
+        "width": 5.16,
+        "flip": false
+      },
+      {
+        "key": "tank",
+        "angle": 2.219,
+        "radius": 32.76,
+        "height": 6.04,
+        "width": 3.24,
+        "flip": false
+      },
+      {
+        "key": "billboard",
+        "angle": 2.6485,
+        "radius": 25.08,
+        "height": 9.87,
+        "width": 9.03,
+        "flip": true
+      },
+      {
+        "key": "tank",
+        "angle": 3.0269,
+        "radius": 31.03,
+        "height": 5.17,
+        "width": 2.77,
+        "flip": false
+      },
+      {
+        "key": "sign",
+        "angle": 3.6681,
+        "radius": 23.7,
+        "height": 10.18,
+        "width": 4.32,
+        "flip": false
+      },
+      {
+        "key": "tank",
+        "angle": 3.982,
+        "radius": 31.5,
+        "height": 6.11,
+        "width": 3.27,
+        "flip": true
+      },
+      {
+        "key": "billboard",
+        "angle": 4.4977,
+        "radius": 22.74,
+        "height": 8.24,
+        "width": 7.55,
+        "flip": false
+      },
+      {
+        "key": "tank",
+        "angle": 4.8285,
+        "radius": 32.81,
+        "height": 5.89,
+        "width": 3.16,
+        "flip": true
+      },
+      {
+        "key": "sign",
+        "angle": 5.3182,
+        "radius": 24.48,
+        "height": 10.72,
+        "width": 4.54,
+        "flip": false
+      },
+      {
+        "key": "tank",
+        "angle": 5.8994,
+        "radius": 29.4,
+        "height": 5.68,
+        "width": 3.04,
+        "flip": true
+      }
+    ]
+  }
+}

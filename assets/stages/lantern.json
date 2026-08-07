@@ -1,0 +1,203 @@
+{
+  "id": "lantern",
+  "name": "The Lantern Maze",
+  "clan": "KITSUNE 狐",
+  "sign": "Mar · Water",
+  "blurb": "Alleys that do not keep the same shape twice.",
+  "horizon": 0.38,
+  "palette": {
+    "background": 853513,
+    "fog": 2562070,
+    "fogDensity": 0.024,
+    "key": 16767408,
+    "keyIntensity": 2.4,
+    "rim": 16734842,
+    "rimIntensity": 1.3,
+    "hemiSky": 3808290,
+    "hemiGround": 1181449,
+    "hemiIntensity": 0.6,
+    "ring": 16751210,
+    "landmarkTint": 9067090,
+    "groundTint": 9070166
+  },
+  "motes": {
+    "kind": "foxfire",
+    "count": 160,
+    "color": 16757852,
+    "size": 0.11,
+    "rise": 0.35,
+    "drift": 0.7
+  },
+  "sky": {
+    "file": "lantern-sky.webp",
+    "radius": 34,
+    "height": 33.9,
+    "repeat": 4
+  },
+  "ground": {
+    "file": "lantern-ground.webp",
+    "radius": 34,
+    "repeat": 26
+  },
+  "sourcePlates": {
+    "sky": "sky-src.jpg",
+    "ground": "ground-src.jpg"
+  },
+  "landmarks": {
+    "file": "lantern-lm.webp",
+    "size": [
+      1372,
+      1332
+    ],
+    "rects": {
+      "arch": [
+        0,
+        0,
+        690,
+        854
+      ],
+      "doors": [
+        0,
+        856,
+        971,
+        476
+      ],
+      "torii": [
+        692,
+        0,
+        678,
+        755
+      ]
+    },
+    "layout": [
+      {
+        "key": "arch",
+        "angle": -0.021,
+        "radius": 24.69,
+        "height": 6.79,
+        "width": 5.49,
+        "flip": false
+      },
+      {
+        "key": "doors",
+        "angle": 0.3599,
+        "radius": 31.69,
+        "height": 4.07,
+        "width": 8.29,
+        "flip": true
+      },
+      {
+        "key": "torii",
+        "angle": 0.7717,
+        "radius": 22.78,
+        "height": 5.1,
+        "width": 4.58,
+        "flip": false
+      },
+      {
+        "key": "doors",
+        "angle": 1.2736,
+        "radius": 31.47,
+        "height": 4.43,
+        "width": 9.04,
+        "flip": true
+      },
+      {
+        "key": "arch",
+        "angle": 1.6175,
+        "radius": 25.75,
+        "height": 6.17,
+        "width": 4.99,
+        "flip": false
+      },
+      {
+        "key": "doors",
+        "angle": 1.9498,
+        "radius": 30.65,
+        "height": 4.48,
+        "width": 9.14,
+        "flip": false
+      },
+      {
+        "key": "torii",
+        "angle": 2.3113,
+        "radius": 22.37,
+        "height": 5.98,
+        "width": 5.37,
+        "flip": true
+      },
+      {
+        "key": "doors",
+        "angle": 2.7518,
+        "radius": 31.64,
+        "height": 4.39,
+        "width": 8.95,
+        "flip": true
+      },
+      {
+        "key": "arch",
+        "angle": 3.1886,
+        "radius": 24.75,
+        "height": 5.86,
+        "width": 4.73,
+        "flip": true
+      },
+      {
+        "key": "doors",
+        "angle": 3.5267,
+        "radius": 31.76,
+        "height": 4.55,
+        "width": 9.27,
+        "flip": false
+      },
+      {
+        "key": "torii",
+        "angle": 3.9795,
+        "radius": 24.87,
+        "height": 5.76,
+        "width": 5.18,
+        "flip": false
+      },
+      {
+        "key": "doors",
+        "angle": 4.3595,
+        "radius": 30.13,
+        "height": 4.67,
+        "width": 9.52,
+        "flip": false
+      },
+      {
+        "key": "arch",
+        "angle": 4.6332,
+        "radius": 25.54,
+        "height": 5.9,
+        "width": 4.77,
+        "flip": false
+      },
+      {
+        "key": "doors",
+        "angle": 5.1103,
+        "radius": 29.65,
+        "height": 4.76,
+        "width": 9.71,
+        "flip": true
+      },
+      {
+        "key": "torii",
+        "angle": 5.5022,
+        "radius": 23.57,
+        "height": 5.36,
+        "width": 4.82,
+        "flip": true
+      },
+      {
+        "key": "doors",
+        "angle": 5.8326,
+        "radius": 32.43,
+        "height": 4.07,
+        "width": 8.3,
+        "flip": true
+      }
+    ]
+  }
+}

@@ -179,13 +179,31 @@ export class CpuBrain {
         const home = HOME_RANGE[arch] ?? 1.4;
         const canAttack = engine.frame - this.lastAttackFrame > cfg.attackCooldown;
 
-        // Re-centre — but only once we're near striking range. Facing only
-        // rotates along x, so a z-offset means whiffing forever; the counter
-        // is to step back onto the opponent's line. Doing it at long range is
-        // a trap though: against a zoner, OFF the needle's line is exactly
-        // where the approach is safe. Walk in off-axis, re-align to strike.
+        // Re-centre — but only when being off the line actually costs a hit,
+        // and only sometimes. Facing rotates along x only, so a z-offset means
+        // whiffing; the counter is to step back onto the opponent's line.
+        // Three things make the naive version wrong:
+        //
+        //  1. At long range it is a trap. Against a zoner, OFF the needle's
+        //     line is exactly where the approach is safe — walk in off-axis
+        //     and re-align to strike.
+        //  2. A raw z-gap is the wrong measure. The hit test asks whether the
+        //     target sits inside the move's tracking CONE, and the median move
+        //     in the cast tracks ~26 degrees, so a small offset at close range
+        //     is not a whiff at all. Judge it with the engine's own metric.
+        //  3. THE DEADLOCK. A sidestep carries ~1.8 units (speed x frames,
+        //     near-identical across the cast) and the old trigger was a 0.45
+        //     z-offset — four times smaller than the correction. Both fighters
+        //     correct TOWARD each other on the same frame, each overshoots,
+        //     and dz comes back the same magnitude with the sign flipped: a
+        //     stable two-cycle where neither ever attacks. It cost four of the
+        //     64 CPU matchups a ZERO-HIT match — both sides standing in range
+        //     for the full sixty seconds, throwing nothing. Committing only
+        //     sometimes desynchronises two mirrored brains, so one correction
+        //     lands instead of the pair cancelling forever.
         const dz = op.pos.z - me.pos.z;
-        if (Math.abs(dz) > 0.45 && arch !== 'ZONER' && dist < home + 0.9) {
+        if (arch !== 'ZONER' && dist < home + 0.9 &&
+            engine.offAxisDegrees(me, op) > 26 && this.chance(0.5)) {
             return dz > 0 ? Btn.STEP_RIGHT : Btn.STEP_LEFT;
         }
 

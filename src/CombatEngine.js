@@ -719,7 +719,19 @@ export class CombatEngine {
         // Armor: the defender is mid-swing on an armored move, so they eat the
         // hit and keep going. Costs real health (armor is not invulnerability)
         // and burns the armor for the rest of that swing.
-        if (!blocked && def.state === State.ATTACKING && def.armorLeft > 0 && !def.airborne && !m.isSuper) {
+        // The armor WINDOW is startup + active only. It used to be the whole
+        // ATTACKING state, which on Iron Advance meant 16 startup + 3 active +
+        // 20 RECOVERY — armor covering the escape as well as the approach, so
+        // the first punish anyone threw at a whiffed or blocked advance was
+        // simply eaten. That is the opposite of the trade armor is supposed to
+        // be: commit early, be vulnerable late. It was worth 42 points of win
+        // rate (Tetsuki 99% -> 57% in tools/tune.mjs when armor was removed
+        // entirely, and he is the only fighter in the cast who has any), and it
+        // quietly cancelled the counter-play every other archetype depends on.
+        const dArmorWindow = def.move &&
+            def.stateFrame < this.startupFor(def, def.move) + (def.move.activeFrames ?? 0);
+        if (!blocked && def.state === State.ATTACKING && def.armorLeft > 0 && dArmorWindow &&
+            !def.airborne && !m.isSuper) {
             def.armorLeft--;
             const chip = Math.max(1, Math.round(m.damage * 0.5));
             def.health = Math.max(0, def.health - chip);

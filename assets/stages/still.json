@@ -46,24 +46,24 @@
   "landmarks": {
     "file": "still-lm.webp",
     "size": [
-      1678,
-      1885
+      1362,
+      1826
     ],
     "rects": {
       "teahouse": [
         0,
-        998,
+        939,
         926,
         887
       ],
       "lantern": [
+        918,
         0,
-        0,
-        758,
-        996
+        442,
+        922
       ],
       "tree": [
-        760,
+        0,
         0,
         916,
         937
@@ -91,7 +91,7 @@
         "angle": 1.0149,
         "radius": 22.31,
         "height": 3.05,
-        "width": 2.32,
+        "width": 1.46,
         "flip": true
       },
       {
@@ -123,7 +123,7 @@
         "angle": 3.2112,
         "radius": 22.63,
         "height": 3.48,
-        "width": 2.65,
+        "width": 1.67,
         "flip": false
       },
       {
@@ -155,7 +155,7 @@
         "angle": 5.2473,
         "radius": 24.22,
         "height": 3.59,
-        "width": 2.73,
+        "width": 1.72,
         "flip": false
       },
       {

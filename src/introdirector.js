@@ -14,6 +14,7 @@ class IntroDirector {
         this._ctx = null;
         this._resolve = null;
         this._announced = false;   // one-shot latch per state (announce/hold)
+        this._lastAdvance = 0;     // auto-advance timer for the WORDS state
         this._scratch = {
             mid: new Vector3(),
             pos: new Vector3(),
@@ -46,9 +47,9 @@ class IntroDirector {
         mid.copy(meshes[0].position).add(meshes[1].position).multiplyScalar(0.5);
 
         switch (this._state) {
-            case 0: // SWEEP (1.8s)
-                if (this._clock <= 1.8) {
-                    const t = SMOOTHSTEP(this._clock / 1.8);
+            case 0: // SWEEP (1.2s — beats shortened after the first playtest)
+                if (this._clock <= 1.2) {
+                    const t = SMOOTHSTEP(this._clock / 1.2);
                     const y = 4.2 + t * (2.2 - 4.2);
                     const z = 9.5 + t * (6.5 - 9.5);
                     pos.set(mid.x, mid.y + y, mid.z + z);
@@ -60,8 +61,8 @@ class IntroDirector {
                 }
                 break;
 
-            case 1: // INTRO A (1.5s)
-                if (this._clock <= 1.5) {
+            case 1: // INTRO A (1.1s)
+                if (this._clock <= 1.1) {
                     const p0 = meshes[0].position;
                     // Determine facing direction based on relative positions of fighters
                     const p1 = meshes[1].position;
@@ -80,8 +81,8 @@ class IntroDirector {
                 }
                 break;
 
-            case 2: // INTRO B (1.5s)
-                if (this._clock <= 1.5) {
+            case 2: // INTRO B (1.1s)
+                if (this._clock <= 1.1) {
                     const p1 = meshes[1].position;
                     // Determine facing direction based on relative positions of fighters
                     const p0 = meshes[0].position;
@@ -106,23 +107,31 @@ class IntroDirector {
                     // We need to ensure we don't restart the story if it's already started
                     if (!this._ctx._storyPromise) {
                         this._ctx._storyPromise = overlay.playStory(lines);
+                        this._lastAdvance = 0;
                     }
+                }
+                // Lines advance on their own — the first playtest soft-locked
+                // here because nothing said "press Space". Space/Enter still
+                // advances early, any attack key skips the whole intro.
+                if (overlay.storyActive && this._clock - this._lastAdvance > 2.6) {
+                    this._lastAdvance = this._clock;
+                    overlay.advanceStory();
                 }
                 // Hold two-shot camera during story
                 pos.set(mid.x, mid.y + 1.9, mid.z + 5.2);
                 target.set(mid.x, mid.y + 1.1, mid.z);
                 camera.position.copy(pos);
                 camera.lookAt(target);
-                
+
                 // Check if story is done
                 if (!overlay.storyActive) {
                     this._advanceState();
                 }
                 break;
 
-            case 4: // STAREDOWN (1.0s)
-                if (this._clock <= 1.0) {
-                    const angle = (this._clock / 1.0) * (18 * Math.PI / 180); // 18 degrees in radians
+            case 4: // STAREDOWN (0.7s)
+                if (this._clock <= 0.7) {
+                    const angle = (this._clock / 0.7) * (18 * Math.PI / 180); // 18 degrees in radians
                     const radius = 5.2; // Distance from midpoint
                     pos.set(
                         mid.x + radius * Math.sin(angle),
@@ -162,9 +171,13 @@ class IntroDirector {
     }
 
     skip() {
-        // Clean up story promise if skipping
-        if (this._ctx && this._ctx._storyPromise) {
-            delete this._ctx._storyPromise;
+        // Force-close the VN panel too — advanceStory() only hides it when
+        // the queue runs out naturally, so a mid-dialogue skip left
+        // overlay.storyActive stuck true and the main loop's
+        // `!overlay.storyActive && !intro.active` gate never opened again.
+        if (this._ctx) {
+            if (this._ctx._storyPromise) delete this._ctx._storyPromise;
+            if (this._ctx.overlay.storyActive) this._ctx.overlay.closeStory();
         }
         this._finish();
     }

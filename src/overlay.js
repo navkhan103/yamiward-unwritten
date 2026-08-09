@@ -195,4 +195,22 @@ export class Overlay {
         }, 18);
         this._typing = { handle, full };
     }
+
+    /**
+     * Force-close the VN panel from OUTSIDE the normal advance flow (the
+     * intro director's skip path). advanceStory() only hides the panel when
+     * it naturally runs out of lines — a skip while lines remain left the
+     * panel (and storyActive) stuck true forever, which permanently blocked
+     * engine.step() in the main loop. This tears the panel down unconditionally
+     * and resolves the outstanding promise so nothing double-hangs.
+     */
+    closeStory() {
+        if (this._typing) { clearInterval(this._typing.handle); this._typing = null; }
+        this._storyQueue = [];
+        this.el.story.hidden = true;
+        this.el.root.classList.remove('story-mode');
+        const done = this._onStoryDone;
+        this._onStoryDone = null;
+        if (done) done();
+    }
 }

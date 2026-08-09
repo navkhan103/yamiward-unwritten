@@ -243,6 +243,12 @@ export function attachFace(headJoint, def) {
     faceMesh.position.set(0, 0, 0.007); // z-offset to avoid z-fighting
     headJoint.add(faceMesh);
 
+    // The head piece already carries the character's painted face; the plane
+    // showing full-time reads as a second head (playtest 2026-08-10). It now
+    // flashes only on the big moments — hurt and KO.
+    const SHOWN_STATES = new Set(['pain', 'ko']);
+    faceMesh.visible = false;
+
     let currentState = 'neutral';
     let holdState = null;
     let holdTimeLeft = 0;
@@ -302,6 +308,7 @@ export function attachFace(headJoint, def) {
                 this.material.map = makeFaceTexture(currentState, def);
                 this.material.needsUpdate = true;
             }
+            faceMesh.visible = SHOWN_STATES.has(currentState);
         },
 
         set(state) {
@@ -310,6 +317,7 @@ export function attachFace(headJoint, def) {
             currentState = state;
             this.material.map = makeFaceTexture(currentState, def);
             this.material.needsUpdate = true;
+            faceMesh.visible = SHOWN_STATES.has(currentState);
         },
 
         hold(state, seconds) {

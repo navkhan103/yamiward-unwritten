@@ -8,12 +8,12 @@
 export function createPoseSprings(jointIds, options = {}) {
     const defaults = {
         core: { omega: 2 * Math.PI * 7, zeta: 1.0 },      // root, torso, hips
-        upperLimb: { omega: 2 * Math.PI * 5.5, zeta: 0.78 },
-        // zeta 0.55, not 0.7: semi-implicit Euler at 60Hz numerically damps
-        // high-omega springs, so the authored zeta must undershoot the
-        // desired visual damping or follow-through vanishes (measured: zeta
-        // 0.7 gave 0.3% overshoot; the target is a visible ~5%).
-        extremity: { omega: 2 * Math.PI * 4.0, zeta: 0.55 }
+        upperLimb: { omega: 2 * Math.PI * 6.5, zeta: 0.85 },
+        // Authored zeta undershoots the visual damping (semi-implicit Euler
+        // at 60Hz adds numerical damping on top). First playtest (2026-08-10)
+        // read the 2π·4.0/0.55 tuning as floppy — stiffened so follow-through
+        // is a hint, not a wobble.
+        extremity: { omega: 2 * Math.PI * 6.0, zeta: 0.75 }
     };
     const { core, upperLimb, extremity } = { ...defaults, ...options };
 
@@ -131,10 +131,13 @@ export function createTimeCtl() {
     let remaining = 0;
     let recover = 0;
 
+    // KO is the ONLY deep slow-mo. Playtest verdict (2026-08-10): frequent
+    // mid-combo dips read as stutter, not drama — counter's kick was removed
+    // at the call site and wallsplat is a barely-there catch, not a dip.
     const profiles = {
         ko: { dip: 0.22, hold: 0.9, recover: 0.7 },
         counter: { dip: 0.5, hold: 0.30, recover: 0.25 },
-        wallsplat: { dip: 0.6, hold: 0.20, recover: 0.25 }
+        wallsplat: { dip: 0.8, hold: 0.12, recover: 0.15 }
     };
 
     function kick(kind) {

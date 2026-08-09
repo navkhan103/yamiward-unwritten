@@ -643,6 +643,10 @@ window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     held.add(e.code);
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+    // Any key skips the showdown (Space/Enter keep their advance-a-line role
+    // via the overlay's own listener). The first playtest read the intro as
+    // "the game is frozen" — a mashed punch must always reach the bell.
+    if (intro.active && e.code !== 'Space' && e.code !== 'Enter') intro.skip();
 });
 window.addEventListener('keyup', (e) => held.delete(e.code));
 window.addEventListener('blur', () => held.clear());
@@ -736,7 +740,10 @@ function handleEvents() {
             case 'hit': {
                 camRig.addShake(ev.counter ? 0.85 : 0.5);
                 meshes[ev.slot].userData.flash = 1;
-                if (ev.counter) { overlay.announce('COUNTER', '', 0.7); timeCtl.kick('counter'); }
+                // No timeCtl kick on counters — they land several times a
+                // round and the repeated dips read as stutter (playtest
+                // 2026-08-10). KO keeps the deep slow-mo.
+                if (ev.counter) { overlay.announce('COUNTER', '', 0.7); }
                 else if (ev.move?.isGrab) overlay.announce('GRIP', '掴', 0.7);
                 break;
             }
@@ -954,6 +961,11 @@ window.YAMIWARD = {
     CpuBrain, CPU_LEVELS, get cpu() { return cpu; },
     setP2Mode(m) { if (P2_MODES.includes(m)) p2Mode = m; return p2Mode; },
     fx, intro, timeCtl,
+    // Manual frame pump: lets a hidden tab (frozen rAF) drive the REAL loop
+    // with synthetic timestamps — the only honest way to QA input/intro/sim
+    // flow headless. Harmless in normal play; rAF re-registration is a no-op
+    // queue entry the browser never fires while hidden.
+    pump: frame,
 };
 
-// yw-202608092022-4839c4
+// yw-202608092055-319627

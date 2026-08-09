@@ -14,7 +14,6 @@ class IntroDirector {
         this._ctx = null;
         this._resolve = null;
         this._announced = false;   // one-shot latch per state (announce/hold)
-        this._lastAdvance = 0;     // auto-advance timer for the WORDS state
         this._scratch = {
             mid: new Vector3(),
             pos: new Vector3(),
@@ -107,16 +106,13 @@ class IntroDirector {
                     // We need to ensure we don't restart the story if it's already started
                     if (!this._ctx._storyPromise) {
                         this._ctx._storyPromise = overlay.playStory(lines);
-                        this._lastAdvance = 0;
                     }
                 }
-                // Lines advance on their own — the first playtest soft-locked
-                // here because nothing said "press Space". Space/Enter still
-                // advances early, any attack key skips the whole intro.
-                if (overlay.storyActive && this._clock - this._lastAdvance > 2.6) {
-                    this._lastAdvance = this._clock;
-                    overlay.advanceStory();
-                }
+                // The player reads at their own pace — Space/Enter/click
+                // (overlay's own listener) advances a line, same as any VN.
+                // A forced auto-advance was tried and reverted: it fought the
+                // typewriter and made longer rival dialogue crawl at a fixed
+                // 2.6s/line regardless of how fast the player wanted to read.
                 // Hold two-shot camera during story
                 pos.set(mid.x, mid.y + 1.9, mid.z + 5.2);
                 target.set(mid.x, mid.y + 1.1, mid.z);

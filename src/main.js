@@ -643,10 +643,12 @@ window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     held.add(e.code);
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
-    // Any key skips the showdown (Space/Enter keep their advance-a-line role
-    // via the overlay's own listener). The first playtest read the intro as
-    // "the game is frozen" — a mashed punch must always reach the bell.
-    if (intro.active && e.code !== 'Space' && e.code !== 'Enter') intro.skip();
+    // Escape is the deliberate, unambiguous "skip the showdown" input — a
+    // gameplay key (J/K/WASD) doing the same was tried and reverted: an
+    // instinctive first keypress silently yanked away dialogue the player
+    // never chose to skip, which read as broken rather than responsive.
+    // Space/Enter still advance a line one at a time via the overlay.
+    if (intro.active && e.code === 'Escape') intro.skip();
 });
 window.addEventListener('keyup', (e) => held.delete(e.code));
 window.addEventListener('blur', () => held.clear());
@@ -819,7 +821,11 @@ function syncMeshes(dt) {
             ud.doll.update(f, dt, camera);
             if (ud.flash > 0) {
                 ud.flash = Math.max(0, ud.flash - dt * 6);
-                setHitFlash(ud.mat, ud.flash * 0.8);
+                // 0.8 was a near-total whiteout against this stage's dark
+                // baseline — bloom then blew it further into a featureless
+                // glowing silhouette with zero readable detail (QA shot,
+                // 2026-08-10). 0.35 still reads clearly as a hit.
+                setHitFlash(ud.mat, ud.flash * 0.35);
                 // Strong hits kick the post chain — this branch was missing it
                 // (only the legacy placeholder path had the hook).
                 if (ud.flash > 0.5) fx.impact(ud.flash * 0.7);
@@ -968,4 +974,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608092055-319627
+// yw-202608092130-94c7c2

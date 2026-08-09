@@ -28,6 +28,11 @@ import { buildDoll } from './paperdoll.js';
 import { Overlay } from './overlay.js';
 import { CpuBrain, CPU_LEVELS } from './cpu.js';
 import { Stage, stageForMatch, STAGE_FOR, STAGE_TITLES } from './stage.js';
+import { createInkNoirFX } from './postfx.js';
+import { createTimeCtl, createKOCam } from './motionfx.js';
+import { createIntroDirector } from './introdirector.js';
+import { introLines } from './intro-lines.js';
+import { createLadder } from './ladder.js';
 
 const FIXED_DT = 1 / 60;
 
@@ -49,6 +54,23 @@ scene.background = new THREE.Color(0x05050b);
 scene.fog = new THREE.FogExp2(0x05050b, 0.035);
 
 const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 200);
+
+// Ink-noir post chain (M-C of the graphics program; see look-target/LOOK-TARGET.md).
+// Self-contained — vendor/addons does not exist, so no three/addons imports.
+const fx = createInkNoirFX(renderer, scene, camera);
+// Slow-mo + KO camera (motionfx job A). Sim/doll/stage run on simDt; the
+// camera and post chain stay on real time so presentation glides through
+// the dilated moment.
+const timeCtl = createTimeCtl();
+const koCam = createKOCam();
+// Pre-fight showdown (job C): pauses the sim, walks the camera through the
+// entrances + dialogue, then hands back to the bell.
+const intro = createIntroDirector();
+// NIGHT PARADE ladder run (see src/ladder.js). One player, the field in
+// seeded order, score chase; parade matches force a CPU opponent.
+const ladder = createLadder(ROSTER);
+let paradePlayer = null;
+let paradePrevP2Mode = null;
 
 // --- lighting: one strong key for readable cel banding, plus cool fill.
 // Anime lighting is high-contrast and directional; three soft lights average
@@ -358,6 +380,39 @@ let resultsShown = false;
 function showResults(winnerDef, loserDef, winnerRounds, loserRounds) {
     const root = document.getElementById('results');
     if (!root) return;
+
+    // NIGHT PARADE: mid-run wins chain straight into the next bout (no card,
+    // no intro); the card appears only when the run ends, repurposed as the
+    // run summary.
+    if (ladder.active && engine) {
+        const playerWon = engine.winner === 1;
+        const p = engine.fighters[0];
+        const res = ladder.reportMatch({
+            won: playerWon,
+            playerHealthFrac: Math.max(0, p.health) / p.def.maxHealth,
+            seconds: Math.max(0, (60 * 60 - engine.timer) / 60),
+            perfect: playerWon && engine.fighters[1].roundsWon === 0,
+        });
+        if (!res.runOver) {
+            overlay.announce(`SCORE ${res.runScore}`, `${ladder.current.index}/${ladder.current.total}`, 1.4);
+            p2Mode = `cpu:${ladder.current.cpuLevel}`;
+            teardownMatch();
+            startMatch(paradePlayer, ladder.current.opponentKey, { skipIntro: true });
+            return;
+        }
+        const s = ladder.summary();
+        if (paradePrevP2Mode) { p2Mode = paradePrevP2Mode; paradePrevP2Mode = null; }
+        document.getElementById('results-kanji').textContent = '宴';
+        document.getElementById('results-title').textContent =
+            s.wins === ladder.current?.total || s.wins >= 7 ? 'PARADE CONQUERED' : 'THE PARADE ENDS';
+        document.getElementById('results-line').textContent =
+            `NIGHT PARADE · ${s.wins} wins · score ${s.runScore}${s.newBest ? ' · NEW BEST' : ''}`;
+        root.style.setProperty('--accent', hex(CHARACTERS[paradePlayer]?.color ?? winnerDef.color));
+        root.hidden = false;
+        resultsShown = true;
+        return;
+    }
+
     document.getElementById('results-kanji').textContent = winnerDef.kanji;
     document.getElementById('results-title').textContent = `${winnerDef.name} WINS`;
     document.getElementById('results-line').textContent =
@@ -381,6 +436,8 @@ function rematch() {
 
 function backToSelect() {
     hideResults();
+    if (ladder.active) ladder.abort();
+    if (paradePrevP2Mode) { p2Mode = paradePrevP2Mode; paradePrevP2Mode = null; }
     teardownMatch();
     showSelect();
 }
@@ -393,7 +450,7 @@ window.addEventListener('keydown', (e) => {
     else if (e.code === 'Enter') { e.preventDefault(); backToSelect(); }
 });
 
-function startMatch(p1Key, p2Key) {
+function startMatch(p1Key, p2Key, opts = {}) {
     // Idempotent: starting a match while one exists must not leak the old one.
     // `rematch` and `backToSelect` both tear down before calling here, but any
     // other caller — a story-mode chapter transition, a debug/QA driver — would
@@ -443,15 +500,29 @@ function startMatch(p1Key, p2Key) {
     camRig = new TekkenCamera(camera, { keepP1Left: true });
     camRig.setFighters(meshes[0], meshes[1]);
 
+    // Pre-fight showdown. Dialogue comes from the CANON introFor lines that
+    // already exist for each matchup (the standalone playStory call below was
+    // racing the director's WORDS phase — two story queues fighting); the
+    // placeholder introLines are only the fallback for pairs introFor doesn't
+    // cover. skipIntro (ladder matches 2+) resolves the whole sequence at once.
+    const canonLines = introFor(p1Key, p2Key, stageId);
+    intro.start({
+        overlay,
+        meshes,
+        defs: [P1_DEF, P2_DEF],
+        lines: (canonLines && canonLines.length) ? canonLines : introLines(p1Key, p2Key, CHARACTERS, RIVALS),
+        faces: [meshes[0].userData.doll?.face ?? null, meshes[1].userData.doll?.face ?? null],
+    }).then(() => {
+        overlay.wipe();
+        overlay.announce('ROUND 1', '闘');
+    });
+    if (opts.skipIntro) intro.skip();
+
     overlay.setFighters(
         { name: P1_DEF.name, kanji: P1_DEF.kanji, color: hex(P1_DEF.color), portrait: `./assets/portraits/${p1Key}.webp` },
         { name: P2_DEF.name, kanji: P2_DEF.kanji, color: hex(P2_DEF.color), portrait: `./assets/portraits/${p2Key}.webp` }
     );
 
-    overlay.playStory(introFor(p1Key, p2Key, stageId)).then(() => {
-        overlay.wipe();
-        overlay.announce('ROUND 1', '闘');
-    });
 }
 
 // ---------------------------------------------------------------------------
@@ -486,6 +557,30 @@ function showSelect() {
     }
     modeBtn?.addEventListener('click', cycleMode);
     paintMode();
+
+    // NIGHT PARADE entry — reuses the mode button's styling; shows the best
+    // run so the score chase starts on the select screen.
+    if (modeBtn && !document.getElementById('select-parade')) {
+        const pb = document.createElement('button');
+        pb.id = 'select-parade';
+        pb.className = modeBtn.className;
+        let bestLine = '';
+        try {
+            const best = JSON.parse(localStorage.getItem('yw_parade_best') || 'null');
+            if (best?.score) bestLine = ` · BEST ${best.score}`;
+        } catch { /* fine */ }
+        pb.textContent = `NIGHT PARADE 百鬼夜行${bestLine}`;
+        pb.addEventListener('click', () => {
+            const player = ROSTER[cursor] ?? 'tetsuki';
+            paradePlayer = player;
+            paradePrevP2Mode = p2Mode;
+            ladder.begin(player, (Date.now() & 0x7fffffff) || 1);
+            root.hidden = true;
+            p2Mode = `cpu:${ladder.current.cpuLevel}`;
+            startMatch(player, ladder.current.opponentKey);
+        });
+        modeBtn.parentElement?.appendChild(pb);
+    }
 
     grid.innerHTML = '';
     const cards = ROSTER.map((keyName, i) => {
@@ -641,7 +736,7 @@ function handleEvents() {
             case 'hit': {
                 camRig.addShake(ev.counter ? 0.85 : 0.5);
                 meshes[ev.slot].userData.flash = 1;
-                if (ev.counter) overlay.announce('COUNTER', '', 0.7);
+                if (ev.counter) { overlay.announce('COUNTER', '', 0.7); timeCtl.kick('counter'); }
                 else if (ev.move?.isGrab) overlay.announce('GRIP', '掴', 0.7);
                 break;
             }
@@ -659,12 +754,19 @@ function handleEvents() {
                 else if (ev.kind === 'charge' && ev.value >= 10) overlay.announce('MAX CHARGE', '雷', 0.8);
                 break;
             }
-            case 'wallsplat': camRig.addShake(1.0); overlay.announce('WALL', '壁', 0.8); break;
+            case 'wallsplat': camRig.addShake(1.0); overlay.announce('WALL', '壁', 0.8); timeCtl.kick('wallsplat'); break;
             case 'crush': overlay.announce(ev.kind === 'high' ? 'DUCKED' : 'HOPPED', '', 0.6); break;
             case 'whiff': overlay.announce('SIDESTEP', '回避', 0.7); break;
             case 'round': overlay.announce(`ROUND ${ev.round}`, '闘'); camRig.snap(); break;
             case 'fight': overlay.announce('FIGHT', '始め'); break;
-            case 'ko': overlay.announce('K.O.', '', 2.4); camRig.addShake(1); break;
+            case 'ko': {
+                overlay.announce('K.O.', '', 2.4); camRig.addShake(1);
+                // Slow-mo + camera push toward the fallen fighter.
+                timeCtl.kick('ko');
+                const down = engine.fighters.findIndex((f) => f.health <= 0);
+                if (down >= 0) koCam.kick(meshes[down].position);
+                break;
+            }
             case 'timeout': overlay.announce('TIME', '', 2.4); break;
             case 'matchend': {
                 const w = engine.fighters[engine.winner - 1];
@@ -711,6 +813,9 @@ function syncMeshes(dt) {
             if (ud.flash > 0) {
                 ud.flash = Math.max(0, ud.flash - dt * 6);
                 setHitFlash(ud.mat, ud.flash * 0.8);
+                // Strong hits kick the post chain — this branch was missing it
+                // (only the legacy placeholder path had the hook).
+                if (ud.flash > 0.5) fx.impact(ud.flash * 0.7);
             }
             continue;
         }
@@ -740,6 +845,8 @@ function syncMeshes(dt) {
         if (ud.flash > 0) {
             ud.flash = Math.max(0, ud.flash - dt * 6);
             setHitFlash(ud.mat, ud.flash * 0.8);
+            // Strong hits kick the post chain (bloom boost + chromatic + pop).
+            if (ud.flash > 0.5) fx.impact(ud.flash * 0.7);
         }
     }
 }
@@ -757,11 +864,12 @@ function frame(now) {
     let dt = (now - last) / 1000;
     last = now;
     if (dt > 0.25) dt = 0.25;          // tab was backgrounded — do not fast-forward
-    acc += dt;
+    const simDt = timeCtl.update(dt);  // slow-mo scales the SIM clock only
+    acc += simDt;
 
     if (!engine) {                      // still on character select
         stage?.update(dt);              // the arena keeps breathing behind the menu
-        renderer.render(scene, camera);
+        fx.render(dt);
         acc = 0;
         return;
     }
@@ -769,7 +877,7 @@ function frame(now) {
     // Fixed-step simulation. The cap stops a long stall from spiralling.
     let steps = 0;
     while (acc >= FIXED_DT && steps < 5) {
-        if (!overlay.storyActive) {
+        if (!overlay.storyActive && !intro.active) {
             engine.step([readInput(0), cpu ? cpu.bits(engine) : readInput(1)]);
         }
         acc -= FIXED_DT;
@@ -777,10 +885,12 @@ function frame(now) {
     }
 
     handleEvents();
-    syncMeshes(dt);
+    syncMeshes(simDt);
     syncProjectiles();
-    stage?.update(dt);
+    stage?.update(simDt);
     camRig.update(dt);
+    koCam.apply(camera, dt);
+    intro.apply(camera, dt);   // overrides the rig while the showdown runs
 
     fpsAcc += dt; fpsFrames++;
     if (fpsAcc >= 0.5) { fps = Math.round(fpsFrames / fpsAcc); fpsAcc = 0; fpsFrames = 0; }
@@ -798,7 +908,7 @@ function frame(now) {
             (f0.move ? ` · ${f0.move.moveName} f${f0.stateFrame}` : ''),
     }, dt);
 
-    renderer.render(scene, camera);
+    fx.render(dt);
 }
 
 function resize() {
@@ -806,6 +916,9 @@ function resize() {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    // FX targets follow the DRAWING BUFFER (device px), not CSS px.
+    const db = renderer.getDrawingBufferSize(new THREE.Vector2());
+    fx.resize(db.x, db.y);
 }
 window.addEventListener('resize', resize);
 resize();
@@ -837,9 +950,10 @@ window.YAMIWARD = {
     get engine() { return engine; }, get camRig() { return camRig; },
     overlay, scene, renderer, camera, MOVES, CHARACTERS, ROSTER, RIVALS,
     get stage() { return stage; }, setStage, stageForMatch, STAGE_FOR,
-    startMatch, showSelect, rematch, backToSelect, handleEvents, readInput,
+    startMatch, showSelect, rematch, backToSelect, handleEvents, readInput, showResults,
     CpuBrain, CPU_LEVELS, get cpu() { return cpu; },
     setP2Mode(m) { if (P2_MODES.includes(m)) p2Mode = m; return p2Mode; },
+    fx, intro, timeCtl,
 };
 
-// yw-202608081418-90c4af
+// yw-202608092022-4839c4

@@ -104,6 +104,9 @@ const ROBE_WING_RIG = [
 
 const markTexCache = new Map();   // clanKey -> THREE.CanvasTexture
 
+import { createPoseSprings } from './motionfx.js';
+import { attachFace, loadFaceAtlas } from './facefx.js';
+
 function makeMarkTexture(clanKey) {
     if (markTexCache.has(clanKey)) return markTexCache.get(clanKey);
 
@@ -272,10 +275,19 @@ export function buildDoll(def) {
     mark.position.set(0, -0.13, 0.006);
     joints.get('armFore.R').add(mark);
 
+    // State-driven face glyphs — ink placeholders until the painted
+    // face art lands via face.loadTextures.
+    const face = attachFace(joints.get('head'), def);
+
     // Smoothed pose state (presentation-only).
     const current = { rot: new Map(rig.map((p) => [p.id, 0])), rootY: 0, rootRZ: 0 };
+    // Per-joint damped springs (motionfx job A): heavier parts lead, extremities
+    // lag and settle — replaces the uniform exponential settle below.
+    const springs = createPoseSprings(rig.map((p) => p.id));
+    const springTargets = {};
 
     const doll = {
+        face,
         joints, hips, rigRoot, mark,
 
         // Canon relative height; 1 until an atlas manifest says otherwise, so the
@@ -310,14 +322,14 @@ export function buildDoll(def) {
             const { clip, move } = clipFor(f, def);
             const target = evalClip(clip, f.stateFrame, move);
 
-            // Exponential settle toward the target pose — hides state pops.
-            const k = Math.min(1, dt * 18);
+            // Damped-spring settle toward the target pose (motionfx). The
+            // robe/wings derivations keep their existing rules — they're just
+            // spring targets like every other joint now, so cloth lags the body.
             for (const p of rig) {
-                const cur = current.rot.get(p.id);
                 // The robe has no authored channel: its sway is derived from the
                 // far leg's thigh channel, which every locomotion/sweep clip
                 // already animates. 0.35 keeps it a drape, not a pendulum.
-                const want = p.id === 'robe'
+                springTargets[p.id] = p.id === 'robe'
                     ? (target.rot['legUpper.L'] ?? 0) * 0.35
                     : p.id.startsWith('wings')
                         // counter-rotate against the torso so the spread lags
@@ -326,14 +338,18 @@ export function buildDoll(def) {
                         // opens and closes rather than sliding sideways
                         ? (target.rot['torso'] ?? 0) * (p.id === 'wings.R' ? 0.55 : -0.55)
                         : (target.rot[p.id] ?? 0);
-                const next = cur + (want - cur) * k;
+            }
+            const sprung = springs.step(springTargets, target.rootY, target.rootRZ, dt);
+            for (const p of rig) {
+                const next = sprung.rot.get(p.id);
                 current.rot.set(p.id, next);
                 joints.get(p.id).rotation.z = next;
             }
-            current.rootY += (target.rootY - current.rootY) * k;
-            current.rootRZ += (target.rootRZ - current.rootRZ) * k;
+            current.rootY = sprung.rootY;
+            current.rootRZ = sprung.rootRZ;
             hips.position.y = HIP_Y + current.rootY;
             rigRoot.rotation.z = current.rootRZ;
+            face.update(f, dt);
             // Hem stays on the floor: the robe hangs from the hips, so a crouch
             // would otherwise push it through the stage. Compress by the ratio of
             // available hip height to the robe's OWN length — measured from the
@@ -493,5 +509,6 @@ export function buildDoll(def) {
         fist: joints.get('armFore.R').children[0],
     };
     doll.loadAtlas();
+    loadFaceAtlas(face, def.key);
     return group;
 }

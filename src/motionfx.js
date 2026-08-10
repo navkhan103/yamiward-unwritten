@@ -206,11 +206,13 @@ export function createKOCam() {
         startTime += realDt;
         if (startTime >= duration) {
             active = false;
-            // Restore original FOV exactly
-            if (camera.fov !== baseFov) {
-                camera.fov = baseFov;
-                camera.updateProjectionMatrix();
-            }
+            // No restore needed: TekkenCamera.update() runs BEFORE this every
+            // frame and unconditionally writes camera.fov from its own
+            // independently-smoothed internal state — a value that kept
+            // tracking the fighters' separation the whole time we were
+            // overriding the display. Restoring to the stale baseFov here
+            // used to get overwritten by that fresher value on the very next
+            // frame anyway, producing a one-frame FOV pop for no benefit.
             return;
         }
 

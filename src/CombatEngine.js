@@ -463,6 +463,14 @@ export class CombatEngine {
             if (f.pos.y <= 0 && f.vel.y <= 0) {
                 f.pos.y = 0; f.airborne = false;
                 f.setState(State.KNOCKDOWN); f.stun = 40;
+                // A knocked-down fighter had no invuln at all — resolveHit
+                // only checks def.invuln, and KNOCKDOWN never set it (only
+                // WAKEUP did, 480 lines down). A meaty hit landing on frame 1
+                // of a knockdown converted it straight into HITSTUN/JUGGLED,
+                // deleting the escape entirely: knock down, meaty, knock
+                // down, meaty, forever. Invuln now covers the whole knockdown
+                // (WAKEUP's own 10-frame grant takes over the instant it ends).
+                f.invuln = f.stun;
                 f.comboCount = 0; f.comboDamage = 0; f.juggleCount = 0;
                 // Static Charge dies on the floor. Raiga's whole shadow arc is
                 // that he needs the momentum, and losing it once costs him
@@ -506,7 +514,7 @@ export class CombatEngine {
             // Cancel window: a connected move can be buffered into its follow-up.
             if (f.canCancel && m.cancelInto && f.stateFrame >= startup + m.activeFrames) {
                 const nxt = this.moves[m.cancelInto];
-                if (nxt && (f.bufferedBtn & this.buttonFor(nxt))) { this.startMove(f, m.cancelInto); return; }
+                if (nxt && (f.bufferedBtn & this.buttonForKey(f, m.cancelInto))) { this.startMove(f, m.cancelInto); return; }
             }
             if (f.stateFrame >= total) {
                 f.setState(f.airborne ? State.MOVING : State.IDLE);
@@ -565,10 +573,23 @@ export class CombatEngine {
         f.vel.x = 0; f.vel.z = 0;
     }
 
-    buttonFor(move) {
-        if (move.isSuper) return Btn.SUPER;
-        if (move.attackHeight === Height.LOW) return Btn.LOW;
-        return move.damage >= 25 ? Btn.HEAVY : Btn.LIGHT;
+    // What button reaches `key` for THIS fighter — the exact inverse of
+    // moveForButton(), looked up from the fighter's own moveset. This
+    // replaced a damage-threshold guess (isSuper -> SUPER, else damage>=25
+    // -> HEAVY else LIGHT) that had no case for SPECIAL at all and put every
+    // heavy in the cast (all of them under 25 damage) on the wrong button.
+    // Net effect: EVERY tier-1 cancel in the game (jab -> the character's
+    // signature special/heavy — Mayoi's whole "cancels into everything"
+    // identity, Raiga's Thunder Rush, all of it) silently never fired,
+    // because the buffered button never matched what this function computed.
+    buttonForKey(f, key) {
+        const ms = f.def.moveset;
+        if (ms.super === key) return Btn.SUPER;
+        if (ms.special === key || ms.grab === key) return Btn.SPECIAL;
+        if (ms.lowCrouch === key || ms.low === key) return Btn.LOW;
+        if (ms.heavy === key) return Btn.HEAVY;
+        if (ms.light === key) return Btn.LIGHT;
+        return 0;
     }
 
     moveForButton(f, btn) {
@@ -587,7 +608,17 @@ export class CombatEngine {
         if (m.meterCost && f.meter < m.meterCost) return;
         if (m.meterCost) f.meter = Math.max(0, f.meter - m.meterCost);
         f.move = m; f.moveKey = key;
-        f.setState(State.ATTACKING);
+        // setState() only resets stateFrame on an ACTUAL state change — but a
+        // cancel (jab -> special, launcher -> super) calls startMove() while
+        // f.state is ALREADY ATTACKING, so setState() is a no-op and the new
+        // move inherited the old move's frame count. If that count already
+        // exceeded the new move's total (startup+active+recovery), the new
+        // move satisfied its own end-of-move check on the very next control()
+        // tick and completed with its hitbox never activating — a move that
+        // visibly starts and vanishes with no hit, no block, nothing. Frame
+        // count must always restart at 0 when a move BEGINS, cancel or not.
+        f.state = State.ATTACKING;
+        f.stateFrame = 0;
         f.hitUsed = false; f.canCancel = false;
 
         // Armor is armed at the START of the swing and is gone when it ends —

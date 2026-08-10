@@ -156,24 +156,39 @@ function makeMarkTexture(clanKey) {
 // Pose evaluation — pure (clip, u|frame, move) -> {rot per piece, root}
 // ---------------------------------------------------------------------------
 
-function anchorU(t, move) {
+// Mirrors CombatEngine.startupFor() exactly — Raiga's Static Charge shortens
+// a move's real startup, but this presentation layer has no engine instance
+// to ask (update() only gets the fighter). The formula is a pure function of
+// (fighter, move) with no other engine state, so it's safe to duplicate
+// rather than thread an engine reference through render calls just for this.
+// Without it, a charged Raiga's hitbox activates before his wind-up pose
+// finishes playing — the punch visually lands late relative to the hit.
+function chargedStartup(f, move) {
+    const per = f.def.chargeStartupPerStack ?? 0;
+    if (!per || !f.charge) return move.startupFrames;
+    return Math.max(4, Math.round(move.startupFrames - per * f.charge));
+}
+
+function anchorU(t, move, f) {
     if (typeof t === 'number') return t;
-    const total = Math.max(1, move.startupFrames + move.activeFrames + move.recoveryFrames);
+    const startup = chargedStartup(f, move);
+    const total = Math.max(1, startup + move.activeFrames + move.recoveryFrames);
     switch (t) {
         case 'start': return 0;
-        case 'active': return move.startupFrames / total;
-        case 'recover': return (move.startupFrames + move.activeFrames) / total;
+        case 'active': return startup / total;
+        case 'recover': return (startup + move.activeFrames) / total;
         case 'end': return 1;
         default: return 0;
     }
 }
 
 /** Evaluate a clip. For phase clips pass the move; u is stateFrame/total. */
-function evalClip(clip, frame, move) {
+function evalClip(clip, frame, move, f) {
     const keys = clip.keys;
     let u;
     if (clip.phase) {
-        const total = Math.max(1, move.startupFrames + move.activeFrames + move.recoveryFrames);
+        const startup = chargedStartup(f, move);
+        const total = Math.max(1, startup + move.activeFrames + move.recoveryFrames);
         u = Math.min(1, frame / total);
     } else if (clip.dur > 1) {
         u = (frame % clip.dur);
@@ -183,7 +198,7 @@ function evalClip(clip, frame, move) {
 
     // Locate bracketing keys.
     let a = keys[0], b = keys[keys.length - 1];
-    const keyT = (k) => clip.phase ? anchorU(k.t, move) : k.t;
+    const keyT = (k) => clip.phase ? anchorU(k.t, move, f) : k.t;
     for (let i = 0; i < keys.length - 1; i++) {
         if (u >= keyT(keys[i]) && u <= keyT(keys[i + 1])) { a = keys[i]; b = keys[i + 1]; break; }
     }
@@ -320,7 +335,7 @@ export function buildDoll(def) {
             rigRoot.position.z = f.slot === 0 ? 0.09 : -0.09;
 
             const { clip, move } = clipFor(f, def);
-            const target = evalClip(clip, f.stateFrame, move);
+            const target = evalClip(clip, f.stateFrame, move, f);
 
             // Damped-spring settle toward the target pose (motionfx). The
             // robe/wings derivations keep their existing rules — they're just

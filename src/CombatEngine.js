@@ -389,6 +389,7 @@ export class CombatEngine {
             def.stun = m.blockStun;
             def.setState(State.BLOCKING);
             def.meter = clamp(def.meter + (m.meterGainDefender ?? 3), 0, 100);
+            att.canCancel = true;
             this.emit('block', { slot: def.slot, move: m, projectile: true });
             this.emit('projectileend', { id: pr.id });
             return;
@@ -405,6 +406,11 @@ export class CombatEngine {
         this.applyOnHitEffects(att, def, m);
 
         att.meter = clamp(att.meter + (m.meterGainAttacker ?? 6), 0, 100);
+        // resolveHit() (the attached-hitbox path) grants this on both block
+        // and hit; this projectile path never did, so Shigure's drizzle ->
+        // super — her one cancel that depends on a projectile connecting,
+        // not a normal — could never fire. Same bug family as buttonForKey.
+        att.canCancel = true;
         this.hitstop = m.hitstop ?? 5;
         this.shake = 4;
         this.emit('hit', {

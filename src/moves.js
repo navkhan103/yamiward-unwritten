@@ -344,8 +344,19 @@ export const MOVES = {
         // Fast, short-lived, weak. Contrast Yukiwari's needle (0.20 speed,
         // 90 life, 0.72 slow): that one OWNS the ground. This one just keeps
         // Shigure's turn alive from further away than a normal can reach.
+        //
+        // 12/19 did not do what that paragraph says. Her whole identity is the
+        // cancel — "cancels her normals into rain, the same blockstring works
+        // point-blank and at tip range" — but her jab leaves 11 frames of
+        // blockstun and the rain took 12 just to start, so the turn was already
+        // over before it came out, and 19 recovery handed the opponent the
+        // punish. She finished the first balance pass at 11.9% and DROPPED when
+        // everyone else got working cancels, because hers was the one that did
+        // not convert. 8/14 makes it the fast, low-commitment turn-keeper it was
+        // always described as; measured 15% -> 30% and the roster spread 77 ->
+        // 65. Damage stays 8 — this move is not supposed to kill anyone.
         moveName: 'Drizzle', inputCommand: '2',
-        startupFrames: 12, activeFrames: 1, recoveryFrames: 19,
+        startupFrames: 8, activeFrames: 1, recoveryFrames: 14,
         attackHeight: Height.MID, damage: 8,
         hitStun: 18, blockStun: 12, chipDamage: 1,
         reach: 0.95, hitboxHeight: 1.18, trackingDegrees: 14,
@@ -557,8 +568,17 @@ export const MOVES = {
         // Fastest closer in the game (0.095 vs Raiga's 0.07) and 26 frames of
         // recovery to pay for it. This is the move that defines him: it wins
         // the round or it loses the exchange, and there is no third outcome.
+        //
+        // The 26 recovery is KEPT deliberately — it is the authored risk, and a
+        // measured pass on 2026-08-08 confirmed that cutting it to 18 buys about
+        // 3 points of win rate and costs him his whole character. Startup went
+        // 15 -> 12 instead: "fastest closer in the game" was starting up SLOWER
+        // than every other special in the cast, so he was losing the exchange
+        // before the risk was ever in play. Still slower and harder-hitting than
+        // Raiga's Thunder Rush (12/26 at 20 damage vs 11/15 at 16) — he remains
+        // the one who commits hardest.
         moveName: 'Gallop Loose', inputCommand: 'f,f+2',
-        startupFrames: 15, activeFrames: 3, recoveryFrames: 26,
+        startupFrames: 12, activeFrames: 3, recoveryFrames: 26,
         attackHeight: Height.MID, damage: 20,
         hitStun: 23, blockStun: 11,
         reach: 1.52, hitboxHeight: 1.24, trackingDegrees: 22,
@@ -568,8 +588,12 @@ export const MOVES = {
         cancelInto: 'yumihari_super',
     },
     yumihari_low: {
+        // 14/21 was the slowest low of the three RUSHDOWNs (Raiga 12/18, Tsukimi
+        // 12/17) with nothing authored to justify it. Brought to the archetype's
+        // own norm — see the 2026-08-08 balance pass, where Yumihari led the cast
+        // in damage taken while dealing the least.
         moveName: 'Low Draw', inputCommand: 'd+4',
-        startupFrames: 14, activeFrames: 3, recoveryFrames: 21,
+        startupFrames: 12, activeFrames: 3, recoveryFrames: 18,
         attackHeight: Height.LOW, damage: 12,
         hitStun: 20, blockStun: 8,
         reach: 1.50, hitboxHeight: 0.31, trackingDegrees: 22,
@@ -578,8 +602,10 @@ export const MOVES = {
         meterGainAttacker: 7, hitstop: 5,
     },
     yumihari_launcher: {
+        // Recovery 30 -> 27, matching the other launchers (Raiga 28, Mayoi 27).
+        // Same 2026-08-08 pass; no authored intent argued for the outlier.
         moveName: 'Skyward Shot', inputCommand: 'df+2',
-        startupFrames: 14, activeFrames: 3, recoveryFrames: 30,
+        startupFrames: 14, activeFrames: 3, recoveryFrames: 27,
         attackHeight: Height.MID, damage: 18,
         hitStun: 26, blockStun: 10,
         reach: 1.46, hitboxHeight: 1.56, trackingDegrees: 16,

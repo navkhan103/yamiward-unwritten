@@ -926,6 +926,13 @@ function frame(now) {
 
 function resize() {
     const w = window.innerWidth, h = window.innerHeight;
+    // A tab that boots hidden/backgrounded (or hasn't finished its first
+    // layout pass yet) can report 0 here. Applying that locks the renderer
+    // and the postfx render targets at 0x0 permanently — nothing else ever
+    // re-corrects it unless a genuine 'resize' event fires later, which a
+    // visibility change alone doesn't reliably guarantee. Skip the zero
+    // size and retry next frame instead of committing to a broken canvas.
+    if (w <= 0 || h <= 0) { requestAnimationFrame(resize); return; }
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -974,4 +981,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608100339-45d8c9
+// yw-202608102238-163d54

@@ -1,6 +1,6 @@
 {
- "build": "yw-202608092022-4839c4",
- "created": "2026-08-09T20:22:43.208Z",
+ "build": "yw-202608102238-163d54",
+ "created": "2026-08-10T22:38:03.793Z",
  "files": {
   "assets/crests/ameonna.webp": {
    "sha256": "0ce90c85bfe8bc05a86b8ce931cc4ce1bf6ca9500c575b1fb7ed68447bc9abeb",
@@ -275,12 +275,12 @@
    "bytes": 3214
   },
   "index.html": {
-   "sha256": "c4d3493b9ea97a03df3bbaa3f300fefdd82ad935321d7633d93074265dba2252",
+   "sha256": "54fbbc791f9d2c96a4952ad36d1b3d51b5ccec5073bfb90d22e15102c4c5cf21",
    "bytes": 5353
   },
   "src/CombatEngine.js": {
-   "sha256": "4ecfa67271e731ae6d3f9aace2184964902c89d911f261392bd465a06378f308",
-   "bytes": 35859
+   "sha256": "41089097d0db43782fbb84c9cc80a68e8d4df2cc7ff2fa9c0e1b036df89996ac",
+   "bytes": 38404
   },
   "src/TekkenCamera.js": {
    "sha256": "5dd42404a99a600917befd0ffb1a936a09df931bc7fc45ef77680212c51e89de",
@@ -291,16 +291,16 @@
    "bytes": 5129
   },
   "src/cpu.js": {
-   "sha256": "fcecfe3a1ec7e76084470d7a9a87db2b62ec36ee5576757b9acb0bc7f9b45cb0",
-   "bytes": 13911
+   "sha256": "60859633792bd5de337a92d2acb46eb04791734db04d0e80217eea9b37af174c",
+   "bytes": 18261
   },
   "src/dollPoses.js": {
    "sha256": "1f84bcceca467f157f836d73f4fefc0c11a3deb7f849f7ab1c9c8af987d8dd02",
    "bytes": 8129
   },
   "src/facefx.js": {
-   "sha256": "a7a17318890310a99ca91df81a590ba2755f5505faae63d197f07d2781b70839",
-   "bytes": 10557
+   "sha256": "1006463440eb377ecbf624e61de665134dff28935f115b29dcd41a912c7c5bfa",
+   "bytes": 10976
   },
   "src/hitsparks.js": {
    "sha256": "51984a419072eaee82c7ed9c703505cce27db55b737aa1f755e2c6c95dafa5c3",
@@ -311,8 +311,8 @@
    "bytes": 2166
   },
   "src/introdirector.js": {
-   "sha256": "cbf2380287a7d2888033afb36cbcbce9a9e391afb784ee263cb1e5cef62e86be",
-   "bytes": 6054
+   "sha256": "8e3a8a442b82e32071f73f4224ec02682285716ffe9f137e08df1112c7718c5f",
+   "bytes": 6792
   },
   "src/ladder.js": {
    "sha256": "0b4b577040d0763086cbecc6a27acd8ee5b362ed7d71a6a082d2b64fe06b6da8",
@@ -323,28 +323,28 @@
    "bytes": 12737
   },
   "src/main.js": {
-   "sha256": "a4ba48b7df3f3a1ab4181d581edacc226ae98dfd691636f3a862a0625e84252d",
-   "bytes": 44065
+   "sha256": "94ac5a4276e1fc3ed4b5930b1a513f448b4cefcd8b366f6b42a784d4a5d21675",
+   "bytes": 45800
   },
   "src/motionfx.js": {
-   "sha256": "82d7e0692dec717cf642a3925de7f69aff207d4be5567f5ac0276b5d0ee1707f",
-   "bytes": 7894
+   "sha256": "153d3f0a0c61931f239d9d2be6e6b55a7c5f57e1a6d26b4e9b221218335bc534",
+   "bytes": 8446
   },
   "src/moves.js": {
-   "sha256": "2d83ee6e63aa9000540228b9421f833e41e95a2c49727e4affb47049d43ab60a",
-   "bytes": 39758
+   "sha256": "12a51902fca23010f54bf48ed041c3317278b6d18f04a915c1f77c6de96c7572",
+   "bytes": 41641
   },
   "src/outline.js": {
    "sha256": "80616751af46050f1ba8fa8c98a6534f92f684713f3faba7999e51792516183b",
    "bytes": 9854
   },
   "src/overlay.js": {
-   "sha256": "4f67d472fab085e6f3b012cccb0e14770013076b21fd4fb84ecd6563169f3a02",
-   "bytes": 8066
+   "sha256": "5cef51e17e2b575affaad304d942304a0f5443da020391277dcf60431be94139",
+   "bytes": 8871
   },
   "src/paperdoll.js": {
-   "sha256": "55e6c56272e9dbd2e84af7e13653215b4f6d9d6ade8b240e5325d3665bf3a142",
-   "bytes": 26367
+   "sha256": "bf59a1b8bfa312956d5f4b33ba78bd3715b4c21f3ee378c1c6268c62b1cbfc4e",
+   "bytes": 27179
   },
   "src/postfx.js": {
    "sha256": "464a2468716558af003d09aaf441e01d2ddd2b6e0aa14846bbf453767f21aaa4",
@@ -359,7 +359,7 @@
    "bytes": 6028
   },
   "styles.css": {
-   "sha256": "1eaf85102d9675e72d64a515984b10be8bbff7bb857f62e18be09390d4187713",
+   "sha256": "e51e47d04d13fa55c35e17628b6b7c36355a8ea3cfad71e9dd7b3c191d79b932",
    "bytes": 16552
   },
   "vendor/three.module.js": {

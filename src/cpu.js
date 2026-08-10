@@ -31,9 +31,9 @@ function xorshift(s) {
 /** Difficulty is honesty-preserving: harder = faster reactions and better
  *  guard guesses, not more damage or free meter. */
 export const CPU_LEVELS = {
-    easy: { reaction: 18, blockSkill: 0.40, punishSkill: 0.35, stepSkill: 0.15, thinkEvery: 14, attackCooldown: 34, superSense: 0.4 },
-    medium: { reaction: 11, blockSkill: 0.68, punishSkill: 0.65, stepSkill: 0.35, thinkEvery: 9, attackCooldown: 22, superSense: 0.75 },
-    hard: { reaction: 6, blockSkill: 0.86, punishSkill: 0.85, stepSkill: 0.55, thinkEvery: 6, attackCooldown: 12, superSense: 0.95 },
+    easy: { reaction: 18, blockSkill: 0.40, punishSkill: 0.35, stepSkill: 0.15, thinkEvery: 14, attackCooldown: 34, superSense: 0.4, cancelSkill: 0.25 },
+    medium: { reaction: 11, blockSkill: 0.68, punishSkill: 0.65, stepSkill: 0.35, thinkEvery: 9, attackCooldown: 22, superSense: 0.75, cancelSkill: 0.55 },
+    hard: { reaction: 6, blockSkill: 0.86, punishSkill: 0.85, stepSkill: 0.55, thinkEvery: 6, attackCooldown: 12, superSense: 0.95, cancelSkill: 0.80 },
 };
 
 /** Preferred fighting distance per archetype — the whole personality in one
@@ -93,7 +93,45 @@ export class CpuBrain {
         // Locked states ignore input; ATTACKING still reads the buffer, so
         // let queued cancels flow through but plan nothing new.
         if (me.isLocked) return 0;
-        if (me.state === State.ATTACKING) return tap;
+
+        // ---- 0. cancels: press the follow-up during our own swing -----------
+        // EVERY fighter in the cast has cancel routes (jab -> special, special
+        // -> super) and the CPU pressed exactly none of them: `this.tap` was
+        // only ever assigned 0, so `bits()` returned a dead 0 for the whole
+        // ATTACKING state and no follow-up was ever buffered.
+        //
+        // That is a shared loss, but it is not shared evenly. Shigure's entire
+        // authored identity is the cancel — "Cancels her normals into rain. The
+        // same blockstring works point-blank and at tip range" — so without it
+        // she is a trickster with no trick, and she finished the first balance
+        // pass at 11.9%. Tetsuki, whose armour carries him regardless, barely
+        // notices. An unused mechanic silently redistributes the whole roster.
+        //
+        // The engine buffers on a RISING edge and holds it 6 frames, and the
+        // cancel window opens at startup+active, so the press is emitted across
+        // a short band ending at the window: the first frame is the edge, the
+        // buffer covers the rest, and the off-by-one between reading pre-step
+        // state and the engine's own stateFrame++ cannot drop it.
+        if (me.state === State.ATTACKING) {
+            const m = me.move;
+            if (m?.cancelInto && me.canCancel) {
+                const nxt = engine.moves[m.cancelInto];
+                // Decide once per swing, not per frame — otherwise a 3-frame
+                // band re-rolls and the odds are not what cancelSkill says.
+                if (this._cancelSwing !== m || me.stateFrame < this._cancelSeen) {
+                    this._cancelSwing = m;
+                    this._cancelWant = this.chance(cfg.cancelSkill ?? 0.5);
+                }
+                this._cancelSeen = me.stateFrame;
+                const affordable = !nxt?.isSuper || me.meter >= (nxt.meterCost ?? 100);
+                const window = engine.startupFor(me, m) + (m.activeFrames ?? 0);
+                if (this._cancelWant && affordable &&
+                    me.stateFrame >= window - 2 && me.stateFrame <= window) {
+                    return engine.buttonForKey(me, m.cancelInto) || tap;
+                }
+            }
+            return tap;
+        }
 
         const dist = engine.flatDist(me, op);
         const mySet = me.def.moveset;
@@ -179,6 +217,26 @@ export class CpuBrain {
         const home = HOME_RANGE[arch] ?? 1.4;
         const canAttack = engine.frame - this.lastAttackFrame > cfg.attackCooldown;
 
+        // Is SPECIAL a projectile for THIS fighter? The archetype branches below
+        // treat the special button as a close-range tool — "the feint is the
+        // character" for a trickster, "closes and charges" for a rushdown — and
+        // that is right for the fighter each branch was written against. It is
+        // wrong for anyone whose special happens to be a projectile, and the
+        // branch never checked which it was.
+        //
+        // Shigure is the case: a TRICKSTER (canon, story bible §4) whose special
+        // is Drizzle, a projectile. The trickster branch threw it point-blank
+        // 35% of the time, the anti-projectile logic below sidesteps a needle at
+        // up to 92%, and he ate the 19-frame recovery for it. He led the cast in
+        // damage TAKEN (307/match against a 116-263 field) while dealing a
+        // perfectly ordinary 194, and finished at 11.9% win rate.
+        //
+        // Fixing it here rather than in his frame data is deliberate: his kit is
+        // fine and his Form is canon. It was the AI that could not read its own
+        // hand.
+        const specialMove = mySet.special ? engine.moves[mySet.special] : null;
+        const specialIsProjectile = !!specialMove?.projectile;
+
         // Re-centre — but only when being off the line actually costs a hit,
         // and only sometimes. Facing rotates along x only, so a z-offset means
         // whiffing; the counter is to step back onto the opponent's line.
@@ -231,6 +289,15 @@ export class CpuBrain {
             return this.chance(0.2) ? this.stepBit() : 0;
         }
 
+        // A projectile special is a RANGE tool whoever is holding it. Throw it
+        // from outside the opponent's reach, where its recovery is covered by
+        // the distance, instead of in their face where it is a free punish.
+        if (specialIsProjectile && arch !== 'ZONER' && canAttack &&
+            dist > home + 0.6 && dist < 5.0 && this.chance(0.45)) {
+            this.lastAttackFrame = engine.frame;
+            return Btn.SPECIAL;
+        }
+
         // Everyone else wants IN, at their own pace.
         if (dist > home + 0.35) {
             // Grappler's armored advance IS his approach — but only inside its
@@ -261,14 +328,18 @@ export class CpuBrain {
                 if (r < 80) return Btn.LOW;
                 return mySet.grab ? Btn.SPECIAL : Btn.HEAVY;
             }
+            // `sp` = the special, unless it is a projectile — point blank, a
+            // projectile is the worst button in the kit (slowest, sidesteppable,
+            // longest recovery), so those fighters spend that slot on a normal.
+            const sp = specialIsProjectile ? Btn.LOW : Btn.SPECIAL;
             if (arch === 'RUSHDOWN') {
                 if (r < 40) return Btn.LIGHT;        // jab starts the train (chargeGain)
-                if (r < 65) return Btn.SPECIAL;
+                if (r < 65) return sp;
                 if (r < 85) return Btn.LOW;
                 return Btn.HEAVY;
             }
             if (arch === 'TRICKSTER') {
-                if (r < 35) return Btn.SPECIAL;      // the feint is the character
+                if (r < 35) return sp;               // the feint is the character
                 if (r < 60) return Btn.LIGHT;
                 if (r < 85) return Btn.LOW;
                 return Btn.HEAVY;

@@ -226,18 +226,12 @@ export function createInkNoirFX(renderer, scene, camera, opts = {}) {
                     vec3 finalColor = toSRGB(acesApprox(hdr));
 
                     // -- chromatic aberration on impact (shifted taps get the
-                    //    same transform so channels match). Keep the split radial
-                    //    and cap it at ~6 screen px so wide aspects don't tear at
-                    //    the frame edges.
+                    //    same transform so channels match)
                     if (impact > 0.0) {
-                        vec2 px = uv * resolution;
-                        vec2 center = resolution * 0.5;
-                        vec2 dir = px - center;
-                        float pxDist = length(dir);
-                        float shiftPx = min(impact * 0.004 * pxDist, 6.0);
-                        vec2 shiftUV = pxDist > 0.0 ? (dir * (shiftPx / pxDist)) / resolution : vec2(0.0);
-                        float r = toSRGB(acesApprox(texture2D(tScene, uv + shiftUV).rgb)).r;
-                        float bl = toSRGB(acesApprox(texture2D(tScene, uv - shiftUV).rgb)).b;
+                        float dist = length((uv - 0.5) * 2.0);
+                        float shift = impact * 0.002 * dist;
+                        float r = toSRGB(acesApprox(texture2D(tScene, uv + vec2(shift, 0.0)).rgb)).r;
+                        float bl = toSRGB(acesApprox(texture2D(tScene, uv - vec2(shift, 0.0)).rgb)).b;
                         finalColor = mix(finalColor, vec3(r, finalColor.g, bl), impact * 0.3);
                     }
 
@@ -286,8 +280,7 @@ export function createInkNoirFX(renderer, scene, camera, opts = {}) {
             format: THREE.RGBAFormat,
             type: textureType,
             stencilBuffer: false,
-            depthBuffer: true,
-            samples: 4
+            depthBuffer: false
         });
 
         // Half-res targets for bloom

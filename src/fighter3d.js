@@ -1,10 +1,15 @@
 /**
- * YAMIWARD — 3D fighter (VRM) loader + controller
+ * YAMIWARD — 3D fighter (VRM) loader + procedural animation
  * ============================================================================
  * The paper-dolls were always the placeholder; this is the real thing. A VRoid
- * VRM is a rigged humanoid (standard bone set), so we can load it with the
- * shared three-vrm plugin, pose it from the fight engine, and later retarget
- * Mixamo clips onto its humanoid rig.
+ * VRM is a rigged humanoid (standard bone set), so we load it with the shared
+ * three-vrm plugin and drive the humanoid bones ourselves.
+ *
+ * Animation is PROCEDURAL keyframes (poses over time) rather than Mixamo clips,
+ * for two reasons: it needs no external assets or downloads, and it stays fully
+ * in our control so the fight engine can drive it frame-exactly. The clip player
+ * is authored so a Mixamo/glTF clip can be swapped in per move later without
+ * touching the combat bridge.
  *
  * Everything imports the SAME vendored three (via the import map) as the rest of
  * the game — a second three instance is the classic cause of "VRM loads but
@@ -12,12 +17,9 @@
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { VRMLoaderPlugin, VRMUtils, VRMHumanBoneName } from '@pixiv/three-vrm';
+import { VRMLoaderPlugin, VRMUtils, VRMHumanBoneName as B } from '@pixiv/three-vrm';
 
-/**
- * Load a .vrm and return the VRM object (has .scene, .humanoid, .update(dt)).
- * @param {string} url
- */
+/** Load a .vrm and return the VRM object (has .scene, .humanoid, .update(dt)). */
 export async function loadVRM(url) {
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
@@ -26,80 +28,316 @@ export async function loadVRM(url) {
     const vrm = gltf.userData.vrm;
     if (!vrm) throw new Error('file is not a VRM (no userData.vrm)');
 
-    // three-vrm's recommended runtime cleanups.
     VRMUtils.removeUnnecessaryVertices(gltf.scene);
     VRMUtils.combineSkeletons(gltf.scene);
+    VRMUtils.rotateVRM0(vrm);   // VRM0 faces -Z; normalise to +Z like VRM1
 
-    // VRM0 avatars face -Z; this normalises them to face +Z like VRM1 so our
-    // facing math is uniform. No-op on a VRM1 model.
-    VRMUtils.rotateVRM0(vrm);
-
-    // A fighting camera orbits the hero and gets very close — never cull it, and
-    // let every piece cast into the shadow map.
     vrm.scene.traverse((o) => {
         o.frustumCulled = false;
         if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
     });
-
     return vrm;
 }
 
-/** Rotate a normalized humanoid bone by Euler radians (additive on its rest pose). */
-function setBone(vrm, boneName, x, y, z) {
-    const node = vrm.humanoid?.getNormalizedBoneNode(boneName);
-    if (node) node.rotation.set(x, y, z);
+// ---------------------------------------------------------------------------
+// Pose library
+// ---------------------------------------------------------------------------
+// A POSE is a partial map { boneName: [x,y,z] } of Euler radians applied to the
+// NORMALIZED humanoid bones. Anything not named falls back to REST. Axis signs
+// were verified against renders (e.g. lowering an arm needs left z<0, right z>0).
+
+const BONES = [
+    B.Spine, B.Chest, B.Neck, B.Head,
+    B.LeftShoulder, B.LeftUpperArm, B.LeftLowerArm, B.LeftHand,
+    B.RightShoulder, B.RightUpperArm, B.RightLowerArm, B.RightHand,
+    B.LeftUpperLeg, B.LeftLowerLeg, B.RightUpperLeg, B.RightLowerLeg,
+];
+
+// Neutral rest: arms down at the sides, everything else at bind pose.
+const REST = {
+    [B.LeftUpperArm]: [0, 0, -1.28], [B.RightUpperArm]: [0, 0, 1.28],
+    [B.LeftLowerArm]: [0, 0, -0.12], [B.RightLowerArm]: [0, 0, 0.12],
+};
+
+// A bladed fighting guard: weight low, lead shoulder in, fists up.
+const GUARD = {
+    [B.Spine]: [0.10, 0.20, 0], [B.Chest]: [0.05, 0.12, 0],
+    [B.LeftUpperArm]: [-0.55, 0.15, -0.85], [B.LeftLowerArm]: [-1.35, -0.20, -0.25],
+    [B.RightUpperArm]: [-0.45, -0.15, 0.80], [B.RightLowerArm]: [-1.55, 0.20, 0.25],
+    [B.LeftUpperLeg]: [-0.12, 0, 0.10], [B.LeftLowerLeg]: [0.22, 0, 0],
+    [B.RightUpperLeg]: [-0.10, 0, -0.12], [B.RightLowerLeg]: [0.26, 0, 0],
+    [B.Head]: [0.06, 0.10, 0],
+};
+
+const g = (over) => ({ ...GUARD, ...over });   // pose built on top of the guard
+
+// NOTE ON EXAGGERATION: these are deliberately larger than life. A punch tuned
+// to look "anatomically correct" reads as a twitch at gameplay camera distance —
+// fighting games push the extremes so the SILHOUETTE tells you what happened in
+// a single frame. First pass here was naturalistic and was unreadable on a
+// contact sheet; every attack now commits the whole body.
+
+// Jab: lead (left) arm fires straight out, shoulder and chest drive behind it.
+const JAB_OUT = g({
+    [B.Spine]: [0.08, -0.28, 0], [B.Chest]: [0.04, -0.30, 0],
+    [B.LeftShoulder]: [0, -0.25, 0],
+    [B.LeftUpperArm]: [-1.62, -0.30, -0.10], [B.LeftLowerArm]: [-0.06, 0, -0.02],
+    [B.RightUpperArm]: [-0.55, -0.15, 0.95], [B.RightLowerArm]: [-1.7, 0.2, 0.3],
+});
+// Cross / heavy: rear (right) arm drives through, hips rotate fully over.
+const CROSS_WIND = g({
+    [B.Spine]: [0.14, 0.62, 0], [B.Chest]: [0.06, 0.40, 0],
+    [B.RightShoulder]: [0, 0.30, 0],
+    [B.RightUpperArm]: [-0.25, -0.55, 1.15], [B.RightLowerArm]: [-2.0, 0.3, 0.35],
+    [B.LeftUpperArm]: [-0.85, 0.25, -0.75],
+});
+const CROSS_OUT = g({
+    [B.Spine]: [0.10, -0.62, 0], [B.Chest]: [0.05, -0.45, 0],
+    [B.RightShoulder]: [0, -0.32, 0],
+    [B.RightUpperArm]: [-1.68, 0.28, 0.08], [B.RightLowerArm]: [-0.05, 0, 0.02],
+    [B.LeftUpperArm]: [-0.35, 0.30, -1.05], [B.LeftLowerArm]: [-1.5, -0.2, -0.25],
+    [B.LeftUpperLeg]: [-0.2, 0, 0.12], [B.RightUpperLeg]: [0.12, 0, -0.12],
+});
+// Low kick: rear leg chambers then whips through at shin height.
+const KICK_WIND = g({
+    [B.Spine]: [0.16, 0.25, 0],
+    [B.RightUpperLeg]: [-0.85, 0, -0.20], [B.RightLowerLeg]: [1.35, 0, 0],
+    [B.LeftUpperLeg]: [-0.15, 0, 0.10], [B.LeftLowerLeg]: [0.30, 0, 0],
+});
+const KICK_OUT = g({
+    [B.Spine]: [0.05, -0.35, 0.18], [B.Chest]: [0.02, -0.25, 0.10],
+    [B.RightUpperLeg]: [-1.15, 0, -0.35], [B.RightLowerLeg]: [0.12, 0, 0],
+    [B.LeftUpperLeg]: [-0.10, 0, 0.12], [B.LeftLowerLeg]: [0.28, 0, 0],
+    [B.LeftUpperArm]: [-0.30, 0.2, -1.15], [B.RightUpperArm]: [-0.5, 0, 1.0],
+});
+// Hurt: flinch back, head snaps, arms break guard.
+const HURT = {
+    [B.Spine]: [-0.28, 0.05, 0], [B.Chest]: [-0.15, 0, 0], [B.Head]: [-0.30, -0.15, 0.1],
+    [B.LeftUpperArm]: [-0.15, 0, -1.05], [B.RightUpperArm]: [-0.15, 0, 1.0],
+    [B.LeftLowerArm]: [-0.6, 0, -0.2], [B.RightLowerArm]: [-0.6, 0, 0.2],
+    [B.LeftUpperLeg]: [-0.1, 0, 0.08], [B.RightUpperLeg]: [-0.15, 0, -0.1], [B.RightLowerLeg]: [0.3, 0, 0],
+};
+// Knockdown: collapse backward onto the ground (root drop handled separately).
+const FALL = {
+    [B.Spine]: [-0.5, 0, 0], [B.Chest]: [-0.35, 0, 0], [B.Head]: [-0.5, 0, 0],
+    [B.LeftUpperArm]: [-0.2, 0, -1.4], [B.RightUpperArm]: [-0.2, 0, 1.4],
+    [B.LeftUpperLeg]: [-0.6, 0, 0.1], [B.RightUpperLeg]: [-0.5, 0, -0.1],
+    [B.LeftLowerLeg]: [0.7, 0, 0], [B.RightLowerLeg]: [0.6, 0, 0],
+};
+// Win: arms open, chest up.
+const WIN = {
+    [B.Spine]: [-0.08, 0, 0], [B.Chest]: [-0.06, 0, 0], [B.Head]: [-0.05, 0, 0],
+    [B.LeftUpperArm]: [-0.2, 0, -0.7], [B.RightUpperArm]: [-0.2, 0, 0.7],
+    [B.LeftLowerArm]: [-0.5, 0, -0.3], [B.RightLowerArm]: [-0.5, 0, 0.3],
+};
+
+// A CLIP is { loop, dur (s), keys:[{t:0..1, pose}] }. One-shots end on the last
+// key and the state machine returns to idle; loops wrap.
+const CLIPS = {
+    idle:  { loop: true, dur: 2.4, keys: [{ t: 0, pose: GUARD }, { t: 1, pose: GUARD }] },
+    walk:  { loop: true, dur: 0.7, keys: [
+        { t: 0.0, pose: g({ [B.LeftUpperLeg]: [-0.35, 0, 0.1], [B.RightUpperLeg]: [0.2, 0, -0.1], [B.LeftLowerLeg]: [0.3, 0, 0] }) },
+        { t: 0.5, pose: g({ [B.LeftUpperLeg]: [0.2, 0, 0.1], [B.RightUpperLeg]: [-0.35, 0, -0.1], [B.RightLowerLeg]: [0.3, 0, 0] }) },
+        { t: 1.0, pose: g({ [B.LeftUpperLeg]: [-0.35, 0, 0.1], [B.RightUpperLeg]: [0.2, 0, -0.1], [B.LeftLowerLeg]: [0.3, 0, 0] }) },
+    ] },
+    crouch:{ loop: true, dur: 1, keys: [{ t: 0, pose: g({ [B.LeftUpperLeg]: [-0.6, 0, 0.12], [B.RightUpperLeg]: [-0.6, 0, -0.12], [B.LeftLowerLeg]: [0.9, 0, 0], [B.RightLowerLeg]: [0.9, 0, 0], [B.Spine]: [0.25, 0.1, 0] }) }] },
+    light: { loop: false, dur: 0.34, keys: [
+        { t: 0.0, pose: GUARD }, { t: 0.28, pose: JAB_OUT }, { t: 0.5, pose: JAB_OUT }, { t: 1.0, pose: GUARD } ] },
+    heavy: { loop: false, dur: 0.6, keys: [
+        { t: 0.0, pose: GUARD }, { t: 0.35, pose: CROSS_WIND }, { t: 0.55, pose: CROSS_OUT }, { t: 0.7, pose: CROSS_OUT }, { t: 1.0, pose: GUARD } ] },
+    low:   { loop: false, dur: 0.5, keys: [
+        { t: 0.0, pose: GUARD }, { t: 0.35, pose: KICK_WIND }, { t: 0.55, pose: KICK_OUT }, { t: 0.7, pose: KICK_OUT }, { t: 1.0, pose: GUARD } ] },
+    special:{ loop: false, dur: 0.55, keys: [
+        { t: 0.0, pose: GUARD }, { t: 0.3, pose: CROSS_WIND }, { t: 0.5, pose: CROSS_OUT }, { t: 1.0, pose: GUARD } ] },
+    hurt:  { loop: false, dur: 0.4, keys: [{ t: 0, pose: HURT }, { t: 0.4, pose: HURT }, { t: 1, pose: GUARD }] },
+    block: { loop: true, dur: 1, keys: [{ t: 0, pose: g({ [B.LeftUpperArm]: [-0.9, 0.2, -0.7], [B.LeftLowerArm]: [-1.7, -0.2, -0.2], [B.RightUpperArm]: [-0.9, -0.2, 0.7], [B.RightLowerArm]: [-1.8, 0.2, 0.2], [B.Spine]: [0.14, 0.12, 0] }) }] },
+    ko:    { loop: false, dur: 0.7, keys: [{ t: 0, pose: HURT }, { t: 1, pose: FALL }] },
+    win:   { loop: true, dur: 2, keys: [{ t: 0, pose: WIN }, { t: 1, pose: WIN }] },
+};
+
+function lerpPose(a, b, u, out) {
+    for (const bone of BONES) {
+        const pa = a[bone] || REST[bone] || ZERO;
+        const pb = b[bone] || REST[bone] || ZERO;
+        out[bone] = [
+            pa[0] + (pb[0] - pa[0]) * u,
+            pa[1] + (pb[1] - pa[1]) * u,
+            pa[2] + (pb[2] - pa[2]) * u,
+        ];
+    }
+    return out;
 }
+const ZERO = [0, 0, 0];
 
 /**
- * A neutral fighting idle. The VRM rest pose is a T-pose (arms straight out),
- * which reads as "broken scarecrow" — drop the arms to the sides and settle the
- * elbows so he looks like he's standing ready. This is a static hold until real
- * Mixamo clips are retargeted on top.
- */
-export function poseIdle(vrm) {
-    // Arms down to the sides. In this normalized rig, LOWERING an arm from the
-    // T-pose needs a NEGATIVE z on the left and POSITIVE on the right (the mirror
-    // of the naive guess — verified against the render).
-    setBone(vrm, VRMHumanBoneName.LeftUpperArm, 0, 0, -1.22);
-    setBone(vrm, VRMHumanBoneName.RightUpperArm, 0, 0, 1.22);
-    // A little elbow bend so they aren't ramrod straight.
-    setBone(vrm, VRMHumanBoneName.LeftLowerArm, 0, 0, -0.18);
-    setBone(vrm, VRMHumanBoneName.RightLowerArm, 0, 0, 0.18);
-}
-
-/**
- * Controller wrapping a loaded VRM for the game. Keeps the per-frame update and
- * a gentle breathing bob so a static idle still feels alive.
+ * Controller wrapping a loaded VRM. Plays procedural clips, blends between them,
+ * and exposes setState() for the combat bridge to call each frame.
  */
 export class Fighter3D {
     constructor(vrm) {
         this.vrm = vrm;
         this.root = vrm.scene;
-        this._t = 0;
-        this._spine = vrm.humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Spine) || null;
-        this._spineRestX = this._spine ? this._spine.rotation.x : 0;
-        poseIdle(vrm);
+        this._node = {};
+        for (const b of BONES) this._node[b] = vrm.humanoid?.getNormalizedBoneNode(b) || null;
+
+        this._clip = CLIPS.idle;
+        this._name = 'idle';
+        this._t = 0;             // seconds into the current clip
+        this._blend = 0;         // 0..1 crossfade progress into the new clip
+        this._blendDur = 0.12;
+        this._from = {};         // frozen applied pose at the last switch
+        this._cur = {};          // scratch sampled pose
+        this._breath = 0;
+        this._applied = {};      // last applied euler per bone (blend source)
+        for (const b of BONES) this._applied[b] = (GUARD[b] || REST[b] || ZERO).slice();
     }
 
     get object3d() { return this.root; }
-
-    /** Place feet at (x, y, z) in world space. */
     setPosition(x, y, z) { this.root.position.set(x, y, z); }
-
-    /** Face a world yaw (radians). */
     setYaw(y) { this.root.rotation.y = y; }
-
     setScale(s) { this.root.scale.setScalar(s); }
 
-    update(dt) {
-        this._t += dt;
-        // Breathing: a tiny spine sway so the hold isn't a mannequin.
-        if (this._spine) this._spine.rotation.x = this._spineRestX + Math.sin(this._t * 1.6) * 0.02;
-        // three-vrm drives spring bones (hair/cloth) and look-at here.
-        this.vrm.update(dt);
+    /** Switch to a named clip. One-shots restart on request; loops don't re-trigger. */
+    play(name, { restart = false } = {}) {
+        if (!CLIPS[name]) return;
+        if (name === this._name && !restart) return;
+        // Freeze whatever is currently applied as the crossfade source.
+        for (const b of BONES) this._from[b] = this._applied[b].slice();
+        this._clip = CLIPS[name];
+        this._name = name;
+        this._t = 0;
+        this._blend = 0;
     }
 
-    dispose() {
-        VRMUtils.deepDispose(this.root);
+    /**
+     * Play a clip at an EXPLICIT normalized time instead of on the wall clock.
+     * The combat bridge uses this so an attack's visual progress is locked to
+     * the engine's startup/active/recovery frames — the fist and the hitbox
+     * must arrive on the same frame.
+     * @param {string} name
+     * @param {number} u 0..1 through the clip
+     */
+    scrub(name, u) {
+        if (!CLIPS[name]) return;
+        if (name !== this._name) {
+            for (const b of BONES) this._from[b] = this._applied[b].slice();
+            this._clip = CLIPS[name];
+            this._name = name;
+            this._blend = 0;
+        }
+        this._t = THREE.MathUtils.clamp(u, 0, 1) * this._clip.dur;
+        this._scrubbed = true;
     }
+
+    /** True once a one-shot clip has finished (state machine returns to idle). */
+    get done() { return !this._clip.loop && this._t >= this._clip.dur; }
+    get current() { return this._name; }
+
+    _sample(out) {
+        const keys = this._clip.keys;
+        const u = this._clip.loop ? (this._t % this._clip.dur) / this._clip.dur
+            : Math.min(1, this._t / this._clip.dur);
+        let k0 = keys[0], k1 = keys[keys.length - 1];
+        for (let i = 0; i < keys.length - 1; i++) {
+            if (u >= keys[i].t && u <= keys[i + 1].t) { k0 = keys[i]; k1 = keys[i + 1]; break; }
+        }
+        const span = (k1.t - k0.t) || 1;
+        const lu = THREE.MathUtils.clamp((u - k0.t) / span, 0, 1);
+        // smootherstep for weight
+        const s = lu * lu * lu * (lu * (lu * 6 - 15) + 10);
+        return lerpPose(k0.pose, k1.pose, s, out);
+    }
+
+    update(dt) {
+        // A scrubbed frame already set _t from engine frame data — advancing it
+        // again here would double-speed the attack.
+        if (this._scrubbed) this._scrubbed = false;
+        else this._t += dt;
+        this._breath += dt;
+        if (this._blend < 1) this._blend = Math.min(1, this._blend + dt / this._blendDur);
+
+        const sampled = this._sample(this._cur);
+        const bw = this._blend;
+        // Idle/guard breathing so a held pose isn't a mannequin.
+        const breath = Math.sin(this._breath * 1.7) * 0.02;
+
+        for (const bone of BONES) {
+            const node = this._node[bone];
+            if (!node) continue;
+            const s = sampled[bone];
+            const f = this._from[bone] || s;
+            let x = f[0] + (s[0] - f[0]) * bw;
+            let y = f[1] + (s[1] - f[1]) * bw;
+            let z = f[2] + (s[2] - f[2]) * bw;
+            if (bone === B.Spine) x += breath;
+            this._applied[bone] = [x, y, z];
+            node.rotation.set(x, y, z);
+        }
+
+        this.vrm.update(dt);   // spring bones (hair/cloth) + look-at
+    }
+
+    dispose() { VRMUtils.deepDispose(this.root); }
+}
+
+/**
+ * Combat bridge: drive a Fighter3D from an engine fighter, every frame.
+ *
+ * The critical rule is that ATTACK animation time is slaved to the engine's own
+ * frame data (startup / active / recovery), NOT to the clip's authored duration.
+ * If the clip ran on its own clock, the fist would arrive on a different frame
+ * than the hitbox — the exact desync that makes a fighting game feel wrong. So
+ * for attacks we compute normalized progress from f.stateFrame and scrub the
+ * clip to it; everything else plays on wall-clock.
+ *
+ * @param {Fighter3D} f3d
+ * @param {object} f      engine fighter (state, stateFrame, move, crouching…)
+ * @param {object} State  the engine's State enum
+ */
+export function driveFromEngine(f3d, f, State) {
+    const st = f.state;
+
+    if (st === State.ATTACKING && f.move) {
+        const m = f.move;
+        const total = (m.startupFrames ?? 6) + (m.activeFrames ?? 2) + (m.recoveryFrames ?? 8);
+        const u = THREE.MathUtils.clamp(f.stateFrame / Math.max(1, total), 0, 1);
+        // Resolve the move's SLOT from the character's own moveset rather than
+        // parsing its name — moveName is flavour text ("Sleeve Flick", "Nine
+        // Panels") and matching on it silently fell through to `heavy` for every
+        // attack. f.moveKey + def.moveset is the authoritative mapping.
+        let clip = 'heavy';
+        const ms = f.def?.moveset;
+        if (ms && f.moveKey) {
+            const slot = Object.keys(ms).find((k) => ms[k] === f.moveKey);
+            if (slot === 'light') clip = 'light';
+            else if (slot === 'low') clip = 'low';
+            else if (slot === 'special') clip = 'special';
+            else if (slot === 'grab') clip = 'heavy';
+            else if (slot === 'super') clip = 'special';
+        }
+        // Height is the backstop: anything that must be blocked low should read
+        // as a leg attack even if a character names its slots unusually.
+        if (m.height === 'LOW') clip = 'low';
+        f3d.scrub(clip, u);
+        return;
+    }
+
+    switch (st) {
+        case State.HITSTUN:
+        case State.JUGGLED:   f3d.play('hurt'); break;
+        case State.KNOCKDOWN: f3d.play('ko'); break;
+        case State.BLOCKING:  f3d.play('block'); break;
+        case State.WIN:       f3d.play('win'); break;
+        case State.LOSE:      f3d.play('ko'); break;
+        case State.CROUCH:    f3d.play('crouch'); break;
+        case State.MOVING:
+        case State.SIDESTEP:  f3d.play('walk'); break;
+        default:              f3d.play(f.crouching ? 'crouch' : 'idle'); break;
+    }
+}
+
+/** Legacy single-pose helper kept for the bare preview. */
+export function poseIdle(vrm) {
+    const set = (b, x, y, z) => { const n = vrm.humanoid?.getNormalizedBoneNode(b); if (n) n.rotation.set(x, y, z); };
+    for (const b of Object.keys(GUARD)) { const e = GUARD[b]; set(b, e[0], e[1], e[2]); }
 }

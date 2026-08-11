@@ -33,7 +33,7 @@ import { createTimeCtl, createKOCam } from './motionfx.js';
 import { createIntroDirector } from './introdirector.js';
 import { introLines } from './intro-lines.js';
 import { createLadder } from './ladder.js';
-import { Fighter3D, loadVRM } from './fighter3d.js';
+import { Fighter3D, loadVRM, driveFromEngine } from './fighter3d.js';
 import { HitSparks } from './hitsparks.js';
 
 const FIXED_DT = 1 / 60;
@@ -167,6 +167,31 @@ async function setStage(id) {
 // ---------------------------------------------------------------------------
 // Fighters (placeholder primitives — swap for GLB at loadFighterModel)
 // ---------------------------------------------------------------------------
+
+/**
+ * A 3D (VRM) fighter. Returns the group SYNCHRONOUSLY so every consumer that
+ * expects meshes[i] to exist right now (camera rig, viewPose positioning,
+ * compile) keeps working; the model is added into it when the async load
+ * resolves. Until then the group is empty and the match simply runs unseen.
+ *
+ * Until per-fighter models exist, everyone loads the same stand-in — the point
+ * of this path is to prove combat-driven 3D animation, not the roster art.
+ */
+function build3DFighter(def) {
+    const g = new THREE.Group();
+    // Stubs keep any stray reader (syncMeshes' placeholder branch, teardown)
+    // harmless before the model lands.
+    g.userData = { f3d: null, flash: 0, mats: [], mat: null, def };
+    loadVRM('./assets/models/tetsuki.vrm').then((vrm) => {
+        const box = new THREE.Box3().setFromObject(vrm.scene);
+        const h = (box.max.y - box.min.y) || 1.5;
+        vrm.scene.scale.setScalar(1.8 / h);
+        g.add(vrm.scene);
+        g.userData.f3d = new Fighter3D(vrm);
+        compileSubtree(g);
+    }).catch((err) => console.warn('[vrm3d] load failed for', def.key, err));
+    return g;
+}
 
 function buildPlaceholder(def) {
     const group = new THREE.Group();
@@ -526,7 +551,11 @@ function startMatch(p1Key, p2Key, opts = {}) {
     // Paper-doll rig by default (SPEC-PAPERDOLL.md); `?placeholder=1` keeps
     // the primitive capsules reachable for A/B and as the proven fallback.
     const wantPlaceholder = new URLSearchParams(location.search).has('placeholder');
+    // `?vrm3d=1` swaps in real 3D (VRM) fighters. Opt-in while the 3D roster is
+    // one model deep — every fighter currently loads the same stand-in.
+    const want3D = new URLSearchParams(location.search).has('vrm3d');
     const buildFighter = (def) => {
+        if (want3D) return build3DFighter(def);
         if (wantPlaceholder) return buildPlaceholder(def);
         try { return buildDoll(def); }
         catch (err) { console.warn('doll build failed, using placeholder', err); return buildPlaceholder(def); }
@@ -915,6 +944,20 @@ function syncMeshes(dt) {
 
         const ud = g.userData;
 
+        // 3D (VRM) path: the humanoid rig is posed straight from engine state.
+        // Loads async, so this branch only engages once the model has landed;
+        // until then the group is simply empty and the fight runs headless.
+        if (ud.f3d) {
+            g.rotation.y = f.facing === 1 ? Math.PI / 2 : -Math.PI / 2;
+            driveFromEngine(ud.f3d, f, State);
+            ud.f3d.update(dt);
+            if (ud.flash > 0) {
+                ud.flash = Math.max(0, ud.flash - dt * 6);
+                if (ud.flash > 0.5) fx.impact(ud.flash * 0.7);
+            }
+            continue;
+        }
+
         // Paper-doll path: pose evaluator + billboard live in the doll.
         if (ud.doll) {
             // The atlas lands mid-match and swaps every piece's material, which
@@ -1002,7 +1045,9 @@ function frame(now) {
         stage?.update(dt);              // the arena keeps breathing behind the menu
         if (preview3d) {                // ?vrm= 3D preview: slow turntable + spring bones
             preview3d.update(dt);
-            preview3d.object3d.rotation.y += dt * 0.5;
+            // Turntable only when showcasing the model; a clip demo holds still
+            // so the motion itself is what you judge.
+            if (!preview3dHold) preview3d.object3d.rotation.y += dt * 0.5;
         }
         fx.render(dt);
         acc = 0;
@@ -1156,6 +1201,7 @@ camera.lookAt(0, 1.2, 0);
 // without touching the paper-doll fight path. Rolls out to combat once approved.
 // ---------------------------------------------------------------------------
 let preview3d = null;
+let preview3dHold = false;   // true while a clip demo is being judged
 
 async function startVrmPreview(nameParam) {
     document.getElementById('select')?.setAttribute('hidden', '');
@@ -1184,13 +1230,31 @@ async function startVrmPreview(nameParam) {
         charFill.position.set(-3, 2, 2);
         scene.add(charFill);
         scene.add(new THREE.AmbientLight(0xffffff, 0.22));
+        // Face the camera and stop the turntable when a clip is being demoed —
+        // you cannot judge a punch on a spinning model.
+        const demo = new URLSearchParams(location.search).get('anim');
+        if (demo) { preview3d.object3d.rotation.y = 0.45; preview3d.play(demo, { restart: true }); preview3dHold = true; }
         // A close 3/4 hero angle; the turntable in the loop reveals the depth.
-        camera.position.set(2.2, 1.4, 3.2);
-        camera.lookAt(0, 1.0, 0);
-        note.textContent = '3D PREVIEW · TETSUKI 鉄鬼 — real VRM in the arena';
+        // Clip demos pull in tighter — a punch you can't read is untestable.
+        if (demo) { camera.position.set(1.5, 1.25, 2.1); camera.lookAt(0, 1.05, 0); }
+        else { camera.position.set(2.2, 1.4, 3.2); camera.lookAt(0, 1.0, 0); }
+        note.textContent = demo
+            ? `3D PREVIEW · clip: ${demo.toUpperCase()} — 1-9 to switch, SPACE to replay`
+            : '3D PREVIEW · TETSUKI 鉄鬼 — real VRM in the arena';
+
+        // Clip hotkeys so the animations can be flipped through by hand.
+        const ORDER = ['idle', 'walk', 'light', 'heavy', 'low', 'special', 'block', 'hurt', 'ko', 'win'];
+        window.addEventListener('keydown', (e) => {
+            if (!preview3d) return;
+            const i = '1234567890'.indexOf(e.key);
+            if (i >= 0 && ORDER[i]) { preview3d.play(ORDER[i], { restart: true }); note.textContent = `clip: ${ORDER[i].toUpperCase()}`; }
+            if (e.code === 'Space') { e.preventDefault(); preview3d.play(preview3d.current, { restart: true }); }
+        });
+
         // Debug-only offscreen pump (compositor may be paused during QA).
-        window.__vrmDbg = { scene, camera, renderer, fx, vrm, preview3d,
-            pump: (n = 1) => { for (let i = 0; i < n; i++) { preview3d.update(1 / 60); preview3d.object3d.rotation.y += 0.008; fx.render(1 / 60); } } };
+        window.__vrmDbg = { scene, camera, renderer, fx, vrm, get f3d() { return preview3d; },
+            play: (n) => preview3d.play(n, { restart: true }),
+            pump: (n = 1, spin = 0) => { for (let i = 0; i < n; i++) { preview3d.update(1 / 60); preview3d.object3d.rotation.y += spin; fx.render(1 / 60); } } };
     } catch (e) {
         console.error('[vrm] preview failed', e);
         note.style.color = '#ff8080';
@@ -1221,4 +1285,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608111834-5e219a
+// yw-202608111856-c52d9d

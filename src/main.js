@@ -33,6 +33,8 @@ import { createTimeCtl, createKOCam } from './motionfx.js';
 import { createIntroDirector } from './introdirector.js';
 import { introLines } from './intro-lines.js';
 import { createLadder } from './ladder.js';
+import { Fighter3D, loadVRM } from './fighter3d.js';
+import { HitSparks } from './hitsparks.js';
 
 const FIXED_DT = 1 / 60;
 
@@ -72,23 +74,27 @@ const ladder = createLadder(ROSTER);
 let paradePlayer = null;
 let paradePrevP2Mode = null;
 
+// Hand-drawn hit sparks (sprite-sheet VFX in 3D). Lives for the session —
+// shared textures are never disposed per match. See src/hitsparks.js.
+const hitSparks = new HitSparks(scene);
+
 // --- lighting: one strong key for readable cel banding, plus cool fill.
 // Anime lighting is high-contrast and directional; three soft lights average
 // out into mush and destroy the banding the toon ramp exists to produce.
 const key = new THREE.DirectionalLight(0xfff0e0, 2.6);
 key.position.set(5, 9, 4);
 key.castShadow = true;
-// Shadow budget. The old 2048 map over a 24x24 box spent most of its texels on
-// empty arena: fighters are pushed apart by at most ~7 units and are ~2 tall, so
-// a 14x14 box at 1024 gives ~73 texels/unit against the old ~85 — visually a
-// wash, at a QUARTER of the fill cost. That matters more now than it did before,
-// because doll pieces render a real cutout into the depth pass instead of being
-// skipped, so the shadow pass draws 22 planes per frame rather than a handful.
+// Shadow budget. Fighters can reach wallDistance 8 / arenaRadius 9, so the old
+// ±7 box clipped edge shadows during wall-splats and corner pressure. A ±10 box
+// covers the full walkable area with room for airborne arcs. At 1024 over a
+// 20×20 area that is ~51 texels/unit — still tight, but the fill cost stays at
+// a quarter of the original 2048×24×24 and the doll depth pass is the real
+// driver of shadow cost anyway.
 key.shadow.mapSize.set(1024, 1024);
 key.shadow.camera.near = 1;
-key.shadow.camera.far = 26;
-key.shadow.camera.left = -7; key.shadow.camera.right = 7;
-key.shadow.camera.top = 7; key.shadow.camera.bottom = -7;
+key.shadow.camera.far = 28;
+key.shadow.camera.left = -10; key.shadow.camera.right = 10;
+key.shadow.camera.top = 10; key.shadow.camera.bottom = -10;
 key.shadow.bias = -0.0006;
 key.shadow.normalBias = 0.02;
 scene.add(key);
@@ -213,7 +219,11 @@ function buildPlaceholder(def) {
 
 const projectileMeshes = new Map();   // engine id -> THREE.Mesh
 
-function syncProjectiles() {
+// Interpolation state reused every frame (cleared and refilled, no allocation).
+const _projPrev = {};   // id -> {x,y,z}
+const _projCurr = {};   // id -> {x,y,z}
+
+function syncProjectiles(alpha) {
     if (!engine) return;
     const live = new Set();
     for (const pr of engine.projectiles) {
@@ -233,7 +243,19 @@ function syncProjectiles() {
             scene.add(mesh);
             projectileMeshes.set(pr.id, mesh);
         }
-        mesh.position.set(pr.x, pr.y, pr.z);
+        // Interpolate between the last two sim snapshots.
+        const prev = _projPrev[pr.id];
+        const curr = _projCurr[pr.id];
+        if (prev && curr) {
+            mesh.position.set(
+                prev.x + (curr.x - prev.x) * alpha,
+                prev.y + (curr.y - prev.y) * alpha,
+                prev.z + (curr.z - prev.z) * alpha,
+            );
+        } else if (curr) {
+            // New projectile — no prev to lerp from; snap into place.
+            mesh.position.set(curr.x, curr.y, curr.z);
+        }
     }
     for (const [id, mesh] of projectileMeshes) {
         if (!live.has(id)) { scene.remove(mesh); projectileMeshes.delete(id); }
@@ -362,6 +384,11 @@ function teardownMatch() {
         }
     });
     for (const [id, mesh] of projectileMeshes) { scene.remove(mesh); projectileMeshes.delete(id); }
+    // Clear interpolation state so stale snapshots don't leak into the next match.
+    for (const k of Object.keys(_projPrev)) delete _projPrev[k];
+    for (const k of Object.keys(_projCurr)) delete _projCurr[k];
+    // Hit spark system lives for the session — sparks self-clear via age in the
+    // shader; no explicit reset API exists and we must NOT dispose shared textures.
     engine = null;
     camRig = null;
     cpu = null;
@@ -450,6 +477,33 @@ window.addEventListener('keydown', (e) => {
     else if (e.code === 'Enter') { e.preventDefault(); backToSelect(); }
 });
 
+// ---------------------------------------------------------------------------
+// Render interpolation — fixed-timestep state snapshots
+// ---------------------------------------------------------------------------
+// The sim steps at FIXED_DT inside the accumulator loop; meshes and camera
+// previously read engine state directly, so they snap at 60 Hz while rAF runs
+// up to 144 Hz (judder). We capture prev/curr snapshots around each engine
+// step and lerp between them in the render phase so everything moves smoothly.
+//
+// Snapshots happen INSIDE the while loop, immediately BEFORE each engine.step()
+// call — NOT once per rAF before the loop. Doing it before the loop would
+// overwrite prev on no-step frames and reintroduce the snap.
+//
+// Teleport guard: if prev and curr are >3 units apart (round transition,
+// wall-break teleport), snap instead of lerping so the fighter doesn't streak
+// across the arena for one frame.
+
+const _prevPos = [new THREE.Vector3(), new THREE.Vector3()];
+const _currPos = [new THREE.Vector3(), new THREE.Vector3()];
+const _prevFacing = [1, 1];
+const _currFacing = [1, 1];
+
+// Module-scope array reused every frame — no per-frame allocation.
+const viewPose = [
+    { x: 0, y: 0, z: 0, facing: 1 },
+    { x: 0, y: 0, z: 0, facing: 1 },
+];
+
 function startMatch(p1Key, p2Key, opts = {}) {
     // Idempotent: starting a match while one exists must not leak the old one.
     // `rematch` and `backToSelect` both tear down before calling here, but any
@@ -491,9 +545,19 @@ function startMatch(p1Key, p2Key, opts = {}) {
     meshCompile = Promise.all(meshes.map(compileSubtree));
 
     engine = new CombatEngine(P1_DEF, P2_DEF, { moves: MOVES, seed: 0xBEEF, roundSeconds: 60 });
+
+    // Seed interpolation state so the first render frame has valid prev/curr.
+    for (let i = 0; i < 2; i++) {
+        const f = engine.fighters[i];
+        _currPos[i].set(f.pos.x, f.pos.y, f.pos.z);
+        _currFacing[i] = f.facing;
+        _prevPos[i].copy(_currPos[i]);
+        _prevFacing[i] = _currFacing[i];
+    }
+
     // Debug/QA handle — read-only inspection for browser-qa; nothing in the
     // game reads this back.
-    window.__yw = { meshes, engine, scene, camera };
+    window.__yw = { meshes, engine, scene, camera, renderer, fx, intro, overlay, camRig: () => camRig, pump: (n = 1, dtMs = 16.67) => { let t = performance.now(); for (let i = 0; i < n; i++) { t += dtMs; frame(t); } } };
     // The CPU is an input source, not an engine feature: it emits the same
     // bitmasks a pad does, so replays and future netplay are unaffected.
     cpu = p2Mode.startsWith('cpu:') ? new CpuBrain(1, p2Mode.split(':')[1]) : null;
@@ -530,6 +594,11 @@ function startMatch(p1Key, p2Key, opts = {}) {
 // which makes single-player boot straight into the story-correct matchup.
 // ---------------------------------------------------------------------------
 
+// Track the current cycleMode handler so we can remove it before re-adding —
+// showSelect() runs on every return to the select screen and was stacking
+// listeners, so after N visits one click advanced N modes.
+let _modeBtnHandler = null;
+
 function showSelect() {
     const root = document.getElementById('select');
     const grid = document.getElementById('select-grid');
@@ -555,11 +624,16 @@ function showSelect() {
         try { localStorage.setItem('yd_p2mode', p2Mode); } catch { /* fine */ }
         paintMode();
     }
-    modeBtn?.addEventListener('click', cycleMode);
+    // Remove previous handler before adding to prevent stacking across visits.
+    if (_modeBtnHandler && modeBtn) modeBtn.removeEventListener('click', _modeBtnHandler);
+    _modeBtnHandler = cycleMode;
+    modeBtn?.addEventListener('click', _modeBtnHandler);
     paintMode();
 
     // NIGHT PARADE entry — reuses the mode button's styling; shows the best
     // run so the score chase starts on the select screen.
+    // Guarded by `!document.getElementById('select-parade')` so the button is
+    // created only once across visits; its click listener does NOT stack.
     if (modeBtn && !document.getElementById('select-parade')) {
         const pb = document.createElement('button');
         pb.id = 'select-parade';
@@ -747,9 +821,43 @@ function handleEvents() {
                 // 2026-08-10). KO keeps the deep slow-mo.
                 if (ev.counter) { overlay.announce('COUNTER', '', 0.7); }
                 else if (ev.move?.isGrab) overlay.announce('GRIP', '掴', 0.7);
+
+                // Hit spark burst at the impact point — chest height, offset
+                // slightly toward the attacker so it reads between the fighters.
+                const defenderSlot = ev.slot;
+                const attackerSlot = 1 - ev.slot;
+                const defPose = viewPose[defenderSlot];
+                const atkPose = viewPose[attackerSlot];
+                const dx = atkPose.x - defPose.x;
+                const dz = atkPose.z - defPose.z;
+                const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+                const impactPoint = {
+                    x: defPose.x + (dx / dist) * 0.3,
+                    y: 1.2,
+                    z: defPose.z + (dz / dist) * 0.3,
+                };
+                const kind = ev.counter ? 'heavy' : 'light';
+                const tint = engine.fighters[attackerSlot].def.color;
+                hitSparks.burst(impactPoint, kind, tint);
                 break;
             }
-            case 'block': camRig.addShake(0.18); break;
+            case 'block': {
+                camRig.addShake(0.18);
+                // Smaller spark burst on block — teal flash, reads as deflection.
+                const blockerSlot = ev.slot;
+                const attackerSlot = 1 - ev.slot;
+                const blkPose = viewPose[blockerSlot];
+                const atkPose = viewPose[attackerSlot];
+                const dx = atkPose.x - blkPose.x;
+                const dz = atkPose.z - blkPose.z;
+                const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+                hitSparks.burst({
+                    x: blkPose.x + (dx / dist) * 0.25,
+                    y: 1.2,
+                    z: blkPose.z + (dz / dist) * 0.25,
+                }, 'block', 0x9be8e0);
+                break;
+            }
             case 'armor': {
                 // reads as "he walked through it" — flash the armored fighter gold
                 camRig.addShake(0.4);
@@ -800,7 +908,10 @@ function syncMeshes(dt) {
     for (let i = 0; i < 2; i++) {
         const f = engine.fighters[i];
         const g = meshes[i];
-        g.position.set(f.pos.x, f.pos.y, f.pos.z);
+        // Position from the interpolated viewPose, not the raw engine fighter —
+        // this is the core of fixed-timestep render interpolation.
+        const vp = viewPose[i];
+        g.position.set(vp.x, vp.y, vp.z);
 
         const ud = g.userData;
 
@@ -825,7 +936,11 @@ function syncMeshes(dt) {
                 // baseline — bloom then blew it further into a featureless
                 // glowing silhouette with zero readable detail (QA shot,
                 // 2026-08-10). 0.35 still reads clearly as a hit.
-                setHitFlash(ud.mat, ud.flash * 0.35);
+                // ud.mats is the LIVE material list paperdoll maintains across
+                // the atlas swap — flashing ud.mat alone hit an orphaned
+                // material once real art loaded, and the whole doll must flash,
+                // not just its first piece.
+                for (const fm of (ud.mats ?? [ud.mat])) setHitFlash(fm, ud.flash * 0.35);
                 // Strong hits kick the post chain — this branch was missing it
                 // (only the legacy placeholder path had the hook).
                 if (ud.flash > 0.5) fx.impact(ud.flash * 0.7);
@@ -833,13 +948,16 @@ function syncMeshes(dt) {
             continue;
         }
 
-        // face the opponent; +1 faces +x
-        g.rotation.y = f.facing === 1 ? 0 : Math.PI;
+        // face the opponent; +1 faces +x. Facing is discrete (binary) —
+        // lerping it would produce a one-frame twist, so we use curr directly.
+        g.rotation.y = vp.facing === 1 ? 0 : Math.PI;
 
         // crude state posing until skeletal clips land
         const crouched = f.state === State.CROUCH || f.crouching;
         const targetScale = crouched ? 0.72 : 1;
-        ud.torso.scale.y += (targetScale - ud.torso.scale.y) * Math.min(1, dt * 18);
+        // Frame-rate-independent exponential smooth: convergence speed no longer
+        // depends on framerate. Replaces the old `Math.min(1, dt * k)` pattern.
+        ud.torso.scale.y += (targetScale - ud.torso.scale.y) * (1 - Math.exp(-18 * dt));
         ud.head.position.y = 1.72 * (crouched ? 0.78 : 1);
 
         // punch extension during active frames — reads the hitbox visually
@@ -850,14 +968,14 @@ function syncMeshes(dt) {
             reach = 0.4 + Math.min(1, p) * (m.reach - 0.4);
             ud.fist.position.y = m.hitboxHeight ?? 1.3;
         } else {
-            ud.fist.position.y += (1.3 - ud.fist.position.y) * Math.min(1, dt * 12);
+            ud.fist.position.y += (1.3 - ud.fist.position.y) * (1 - Math.exp(-12 * dt));
         }
-        ud.fist.position.x += (reach - ud.fist.position.x) * Math.min(1, dt * 30);
+        ud.fist.position.x += (reach - ud.fist.position.x) * (1 - Math.exp(-30 * dt));
 
         // impact flash decay
         if (ud.flash > 0) {
             ud.flash = Math.max(0, ud.flash - dt * 6);
-            setHitFlash(ud.mat, ud.flash * 0.8);
+            for (const fm of (ud.mats ?? [ud.mat])) setHitFlash(fm, ud.flash * 0.8);
             // Strong hits kick the post chain (bloom boost + chromatic + pop).
             if (ud.flash > 0.5) fx.impact(ud.flash * 0.7);
         }
@@ -882,28 +1000,88 @@ function frame(now) {
 
     if (!engine) {                      // still on character select
         stage?.update(dt);              // the arena keeps breathing behind the menu
+        if (preview3d) {                // ?vrm= 3D preview: slow turntable + spring bones
+            preview3d.update(dt);
+            preview3d.object3d.rotation.y += dt * 0.5;
+        }
         fx.render(dt);
         acc = 0;
         return;
     }
 
     // Fixed-step simulation. The cap stops a long stall from spiralling.
+    // Inside the loop, snapshot fighter + projectile state BEFORE each step
+    // so the render phase can lerp between the two most recent sim states.
     let steps = 0;
     while (acc >= FIXED_DT && steps < 5) {
+        // --- snapshot PREV: the state BEFORE this step ---------------------
+        for (let i = 0; i < 2; i++) {
+            _prevPos[i].copy(_currPos[i]);
+            _prevFacing[i] = _currFacing[i];
+        }
+        // Projectile snapshots: move curr into prev (same objects — no
+        // allocation), leaving curr empty for this step's refill below.
+        for (const k of Object.keys(_projPrev)) delete _projPrev[k];
+        for (const k of Object.keys(_projCurr)) {
+            _projPrev[k] = _projCurr[k];
+            delete _projCurr[k];
+        }
+
         if (!overlay.storyActive && !intro.active) {
             engine.step([readInput(0), cpu ? cpu.bits(engine) : readInput(1)]);
         }
         acc -= FIXED_DT;
         steps++;
+
+        // --- snapshot CURR: the state AFTER this step ----------------------
+        for (let i = 0; i < 2; i++) {
+            const f = engine.fighters[i];
+            _currPos[i].set(f.pos.x, f.pos.y, f.pos.z);
+            _currFacing[i] = f.facing;
+        }
+        for (const pr of engine.projectiles) {
+            _projCurr[pr.id] = { x: pr.x, y: pr.y, z: pr.z };
+        }
+    }
+
+    // Build interpolated viewPose for this frame.
+    // alpha: how far we are between the last sim step (at prev) and the next
+    // one (at curr). Clamped so hitstop/freeze doesn't overshoot.
+    const alpha = Math.min(1, acc / FIXED_DT);
+    for (let i = 0; i < 2; i++) {
+        const vp = viewPose[i];
+        // Teleport guard: if prev and curr are far apart (round transition,
+        // wall-break reposition), snap instead of lerping to avoid a one-frame
+        // streak across the arena.
+        const dx = _currPos[i].x - _prevPos[i].x;
+        const dz = _currPos[i].z - _prevPos[i].z;
+        const jump = Math.sqrt(dx * dx + dz * dz);
+        if (jump > 3) {
+            vp.x = _currPos[i].x;
+            vp.y = _currPos[i].y;
+            vp.z = _currPos[i].z;
+        } else {
+            vp.x = _prevPos[i].x + (_currPos[i].x - _prevPos[i].x) * alpha;
+            vp.y = _prevPos[i].y + (_currPos[i].y - _prevPos[i].y) * alpha;
+            vp.z = _prevPos[i].z + (_currPos[i].z - _prevPos[i].z) * alpha;
+        }
+        // Facing is discrete — no lerp; use current value.
+        vp.facing = _currFacing[i];
     }
 
     handleEvents();
     syncMeshes(simDt);
-    syncProjectiles();
+    syncProjectiles(alpha);
     stage?.update(simDt);
+    // camRig reads mesh positions, which syncMeshes just set from viewPose —
+    // so the camera automatically sees interpolated positions.
     camRig.update(dt);
     koCam.apply(camera, dt);
     intro.apply(camera, dt);   // overrides the rig while the showdown runs
+
+    // Advance hit sparks with the engine frame counter (not dt) — the shader
+    // computes spark age in engine frames so hitstop/slow-mo are honoured.
+    hitSparks.update(engine.frame);
 
     fpsAcc += dt; fpsFrames++;
     if (fpsAcc >= 0.5) { fps = Math.round(fpsFrames / fpsAcc); fpsAcc = 0; fpsFrames = 0; }
@@ -943,6 +1121,19 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
+// Self-rearming DPR listener: catches monitor moves and browser zoom changes
+// after boot. The `once: true` handler re-applies the pixel-ratio cap and
+// re-arms itself with the new ratio so a second monitor move is covered too.
+function armDPRListener() {
+    const mql = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    mql.addEventListener('change', () => {
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        resize();
+        armDPRListener();   // re-arm with the new ratio
+    }, { once: true });
+}
+armDPRListener();
+
 // A neutral establishing camera while the select screen is up.
 camera.position.set(0, 3.2, 10.5);
 camera.lookAt(0, 1.2, 0);
@@ -960,7 +1151,56 @@ camera.lookAt(0, 1.2, 0);
     setStage(new URLSearchParams(location.search).get('stage') || boot);
 }
 
-showSelect();
+// ---------------------------------------------------------------------------
+// 3D fighter preview (?vrm=tetsuki) — proves the VRM pipeline in the real arena
+// without touching the paper-doll fight path. Rolls out to combat once approved.
+// ---------------------------------------------------------------------------
+let preview3d = null;
+
+async function startVrmPreview(nameParam) {
+    document.getElementById('select')?.setAttribute('hidden', '');
+    const raw = (nameParam === '1' || nameParam === 'true') ? 'tetsuki' : nameParam;
+    const url = `./assets/models/${raw}.vrm`;
+    const note = document.createElement('div');
+    note.style.cssText = 'position:fixed;left:0;right:0;top:14px;text-align:center;font:600 15px system-ui;color:#9be8e0;text-shadow:0 1px 4px #000;z-index:50;pointer-events:none';
+    note.textContent = `loading ${raw}.vrm …`;
+    document.body.appendChild(note);
+    try {
+        const vrm = await loadVRM(url);
+        // Scale the avatar to the roster's ~1.8-unit fighter height.
+        const box = new THREE.Box3().setFromObject(vrm.scene);
+        const h = (box.max.y - box.min.y) || 1.5;
+        vrm.scene.scale.setScalar(1.8 / h);
+        vrm.scene.position.set(0, 0, 0);
+        scene.add(vrm.scene);
+        preview3d = new Fighter3D(vrm);
+        // The launch stages are night-dark and swallow him. Add a dedicated
+        // character key + soft fill so the preview reads (a per-fighter rig
+        // light is the plan for combat too — models need more than stage light).
+        const charKey = new THREE.DirectionalLight(0xfff2e6, 1.5);
+        charKey.position.set(2.5, 4, 4);
+        scene.add(charKey);
+        const charFill = new THREE.DirectionalLight(0x9bd0ff, 0.8);
+        charFill.position.set(-3, 2, 2);
+        scene.add(charFill);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.22));
+        // A close 3/4 hero angle; the turntable in the loop reveals the depth.
+        camera.position.set(2.2, 1.4, 3.2);
+        camera.lookAt(0, 1.0, 0);
+        note.textContent = '3D PREVIEW · TETSUKI 鉄鬼 — real VRM in the arena';
+        // Debug-only offscreen pump (compositor may be paused during QA).
+        window.__vrmDbg = { scene, camera, renderer, fx, vrm, preview3d,
+            pump: (n = 1) => { for (let i = 0; i < n; i++) { preview3d.update(1 / 60); preview3d.object3d.rotation.y += 0.008; fx.render(1 / 60); } } };
+    } catch (e) {
+        console.error('[vrm] preview failed', e);
+        note.style.color = '#ff8080';
+        note.textContent = 'VRM load failed: ' + (e && e.message ? e.message : e);
+    }
+}
+
+const _vrmParam = new URLSearchParams(location.search).get('vrm');
+if (_vrmParam) startVrmPreview(_vrmParam);
+else showSelect();
 requestAnimationFrame(frame);
 
 // exposed for console poking and the headless balance harness. handleEvents
@@ -981,4 +1221,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608102238-163d54
+// yw-202608111834-5e219a

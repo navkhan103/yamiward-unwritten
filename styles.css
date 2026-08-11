@@ -405,6 +405,7 @@ html, body {
     gap: 14px;
     background: radial-gradient(ellipse at 50% 40%, rgba(5, 5, 11, 0.55), rgba(5, 5, 11, 0.92));
     z-index: 30;
+    pointer-events: auto;         /* this layer IS interactive */
 }
 
 .select-title {
@@ -538,6 +539,7 @@ html, body {
     justify-content: center;
     background: radial-gradient(ellipse at 50% 45%, rgba(5, 5, 11, 0.35), rgba(5, 5, 11, 0.9));
     z-index: 28;
+    pointer-events: auto;         /* this layer IS interactive */
 }
 
 .results-card {
@@ -662,4 +664,10 @@ html, body {
     padding: 2px;
 }
 
-/* yw-202608102238-163d54 */
+/* Hide controls hint when story or results are visible */
+#hud:has(#story:not([hidden])) .controls-hint,
+#hud:has(#results:not([hidden])) .controls-hint {
+    display: none;
+}
+
+/* yw-202608111834-5e219a */

@@ -1,6 +1,6 @@
 {
- "build": "yw-202608102238-163d54",
- "created": "2026-08-10T22:38:03.793Z",
+ "build": "yw-202608111834-5e219a",
+ "created": "2026-08-11T18:34:27.216Z",
  "files": {
   "assets/crests/ameonna.webp": {
    "sha256": "0ce90c85bfe8bc05a86b8ce931cc4ce1bf6ca9500c575b1fb7ed68447bc9abeb",
@@ -178,6 +178,10 @@
    "sha256": "6a161acc3039d45f1048da37ef305b2264b25360405489ee6edcd72f8cc4f6f4",
    "bytes": 186618
   },
+  "assets/models/tetsuki.vrm": {
+   "sha256": "3d65bd57dc67fc757be5438c37ad45a6f3f7386fbb09741a944e7ddb33669fd2",
+   "bytes": 16972504
+  },
   "assets/portraits/kazakiri.webp": {
    "sha256": "3ad8e57a408b89fd003f29ccebe36a35f6a353294d18f7f7e6a400bd40c60838",
    "bytes": 23018
@@ -275,12 +279,12 @@
    "bytes": 3214
   },
   "index.html": {
-   "sha256": "54fbbc791f9d2c96a4952ad36d1b3d51b5ccec5073bfb90d22e15102c4c5cf21",
-   "bytes": 5353
+   "sha256": "6880dc2e183319af15783875528b856d94755e0937ee2abd48dc0ca800a20ccf",
+   "bytes": 5417
   },
   "src/CombatEngine.js": {
-   "sha256": "41089097d0db43782fbb84c9cc80a68e8d4df2cc7ff2fa9c0e1b036df89996ac",
-   "bytes": 38404
+   "sha256": "9f6fd1aeb43c3d3e213b262d392c50a238cf0345502ad984a46a6bf68d96fb38",
+   "bytes": 38798
   },
   "src/TekkenCamera.js": {
    "sha256": "5dd42404a99a600917befd0ffb1a936a09df931bc7fc45ef77680212c51e89de",
@@ -301,6 +305,10 @@
   "src/facefx.js": {
    "sha256": "1006463440eb377ecbf624e61de665134dff28935f115b29dcd41a912c7c5bfa",
    "bytes": 10976
+  },
+  "src/fighter3d.js": {
+   "sha256": "536a49cb6c198abd8f028e4cd33de0c5c3b28f04277405f44bed5e652bc171a4",
+   "bytes": 4061
   },
   "src/hitsparks.js": {
    "sha256": "51984a419072eaee82c7ed9c703505cce27db55b737aa1f755e2c6c95dafa5c3",
@@ -323,8 +331,8 @@
    "bytes": 12737
   },
   "src/main.js": {
-   "sha256": "94ac5a4276e1fc3ed4b5930b1a513f448b4cefcd8b366f6b42a784d4a5d21675",
-   "bytes": 45800
+   "sha256": "4b315d880830a8ab8f9ebcb4c4ecfbe9c9a1870fefca05167782ce6f930f2fa1",
+   "bytes": 57977
   },
   "src/motionfx.js": {
    "sha256": "153d3f0a0c61931f239d9d2be6e6b55a7c5f57e1a6d26b4e9b221218335bc534",
@@ -343,12 +351,12 @@
    "bytes": 8871
   },
   "src/paperdoll.js": {
-   "sha256": "bf59a1b8bfa312956d5f4b33ba78bd3715b4c21f3ee378c1c6268c62b1cbfc4e",
-   "bytes": 27179
+   "sha256": "b6fa257942d74c8190b96d3eabb152add4164b21ed14ef2bde7ca940e31493a2",
+   "bytes": 28264
   },
   "src/postfx.js": {
-   "sha256": "464a2468716558af003d09aaf441e01d2ddd2b6e0aa14846bbf453767f21aaa4",
-   "bytes": 16178
+   "sha256": "961846cf8213fdc21b9ff1350994acbb5889e0c833bb50b53ba1ddb12074bbe6",
+   "bytes": 16897
   },
   "src/stage.js": {
    "sha256": "53264d16208032e61acd504a3fe0fc81f8786b0b9639bcaf7a90d048f6934861",
@@ -359,8 +367,20 @@
    "bytes": 6028
   },
   "styles.css": {
-   "sha256": "e51e47d04d13fa55c35e17628b6b7c36355a8ea3cfad71e9dd7b3c191d79b932",
-   "bytes": 16552
+   "sha256": "93cca0a3a6c02fde6baf53b762496ae3d66b04177d546ebdb01027eee4766f6b",
+   "bytes": 16862
+  },
+  "vendor/addons/loaders/GLTFLoader.js": {
+   "sha256": "6f1719dcc6a179d30273dfb0de07a8c898a7981f7b08e600b446387f5967371f",
+   "bytes": 110029
+  },
+  "vendor/addons/utils/BufferGeometryUtils.js": {
+   "sha256": "c25b7930e570e9ec56173cd3b866ec8d2e10016630db3937efb439daf1cedbf6",
+   "bytes": 31768
+  },
+  "vendor/three-vrm.module.js": {
+   "sha256": "c78075efbad38503e51c14c4d424bb7417eb949748dcb0cebe2a51816ac38c53",
+   "bytes": 961365
   },
   "vendor/three.module.js": {
    "sha256": "0a3368c165eea773490aec7b77c22de70e3eac288503409256fdbf4d12578416",

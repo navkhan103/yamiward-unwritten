@@ -1,6 +1,6 @@
 {
- "build": "yw-202608102238-163d54",
- "created": "2026-08-10T22:38:03.793Z",
+ "build": "yw-202608110048-f60a09",
+ "created": "2026-08-11T00:48:30.872Z",
  "files": {
   "assets/crests/ameonna.webp": {
    "sha256": "0ce90c85bfe8bc05a86b8ce931cc4ce1bf6ca9500c575b1fb7ed68447bc9abeb",
@@ -275,12 +275,12 @@
    "bytes": 3214
   },
   "index.html": {
-   "sha256": "54fbbc791f9d2c96a4952ad36d1b3d51b5ccec5073bfb90d22e15102c4c5cf21",
+   "sha256": "b7e51c226fdab065f4df942971d84216a42b04e1af0a83c1162633971d8df543",
    "bytes": 5353
   },
   "src/CombatEngine.js": {
-   "sha256": "41089097d0db43782fbb84c9cc80a68e8d4df2cc7ff2fa9c0e1b036df89996ac",
-   "bytes": 38404
+   "sha256": "9f6fd1aeb43c3d3e213b262d392c50a238cf0345502ad984a46a6bf68d96fb38",
+   "bytes": 38798
   },
   "src/TekkenCamera.js": {
    "sha256": "5dd42404a99a600917befd0ffb1a936a09df931bc7fc45ef77680212c51e89de",
@@ -323,8 +323,8 @@
    "bytes": 12737
   },
   "src/main.js": {
-   "sha256": "94ac5a4276e1fc3ed4b5930b1a513f448b4cefcd8b366f6b42a784d4a5d21675",
-   "bytes": 45800
+   "sha256": "40a89320168230aba12588bc89fb38a95a5b62cb823956d29e6f9fd0bf0ac3b0",
+   "bytes": 54847
   },
   "src/motionfx.js": {
    "sha256": "153d3f0a0c61931f239d9d2be6e6b55a7c5f57e1a6d26b4e9b221218335bc534",
@@ -343,12 +343,12 @@
    "bytes": 8871
   },
   "src/paperdoll.js": {
-   "sha256": "bf59a1b8bfa312956d5f4b33ba78bd3715b4c21f3ee378c1c6268c62b1cbfc4e",
-   "bytes": 27179
+   "sha256": "b6fa257942d74c8190b96d3eabb152add4164b21ed14ef2bde7ca940e31493a2",
+   "bytes": 28264
   },
   "src/postfx.js": {
-   "sha256": "464a2468716558af003d09aaf441e01d2ddd2b6e0aa14846bbf453767f21aaa4",
-   "bytes": 16178
+   "sha256": "009fdf78ed5a5bb7d0c813400b7749cbcdb9c1aa7c32b3f1b8f9fa4aa338422a",
+   "bytes": 16598
   },
   "src/stage.js": {
    "sha256": "53264d16208032e61acd504a3fe0fc81f8786b0b9639bcaf7a90d048f6934861",
@@ -359,8 +359,8 @@
    "bytes": 6028
   },
   "styles.css": {
-   "sha256": "e51e47d04d13fa55c35e17628b6b7c36355a8ea3cfad71e9dd7b3c191d79b932",
-   "bytes": 16552
+   "sha256": "84ffa64ea937972cbbbd14b90eb9cc621e93bb05fcd90d3f109967576e8ac220",
+   "bytes": 16862
   },
   "vendor/three.module.js": {
    "sha256": "0a3368c165eea773490aec7b77c22de70e3eac288503409256fdbf4d12578416",

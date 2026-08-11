@@ -282,8 +282,9 @@ export function buildDoll(def) {
     const markMat = new THREE.MeshBasicMaterial({
         map: makeMarkTexture(def.clanKey),
         color: def.color,
-        transparent: true,
-        depthWrite: false,
+        alphaTest: 0.5,
+        transparent: false,
+        depthWrite: true,
         side: THREE.DoubleSide,
     });
     const mark = new THREE.Mesh(new THREE.PlaneGeometry(0.17, 0.095), markMat);
@@ -408,6 +409,13 @@ export function buildDoll(def) {
                 const tex = await new THREE.TextureLoader().loadAsync(`./assets/dolls/${def.key}.webp`);
                 tex.colorSpace = THREE.SRGBColorSpace;
                 if (doc.stature) doll.stature = doc.stature;
+
+                // Live material list: main.js sets flash on these, so the array
+                // must stay the same object across atlas swaps. Placeholder mats
+                // are already in it; we'll replace their entries below.
+                const mats = group.userData.mats;
+                mats.length = 0;
+
                 for (const p of rig) {
                     const m = manifest[p.id];
                     if (!m) continue;
@@ -454,6 +462,11 @@ export function buildDoll(def) {
                         map: pieceTex,
                         alphaTest: 0.5,
                     });
+
+                    // Track the currently-live cel material for hit flashing.
+                    // The mark band is a BasicMaterial and lacks the flash uniforms,
+                    // so it is deliberately excluded.
+                    if (pm.userData && pm.userData.uniforms) mats.push(pm);
 
                     // Art-driven rig. The RIG constants above were authored for
                     // untextured cel planes; real art has its own limb lengths and
@@ -510,6 +523,9 @@ export function buildDoll(def) {
                 // are uncompiled again. Compile now — during the load, not on the
                 // first frame the player sees.
                 doll.needsCompile = true;
+                // userData.mat stays pointed at the first live piece material so
+                // any legacy caller that only expects one material still sees one.
+                group.userData.mat = mats[0] ?? mat;
                 return true;
             } catch { return false; }
         },
@@ -517,11 +533,15 @@ export function buildDoll(def) {
 
     // Same userData contract as buildPlaceholder — flash decay in syncMeshes
     // drives ud.mat; torso/head/fist stubs keep any stray reader harmless.
+    // Mats is the live list main.js will iterate for hit flashes; it starts
+    // with the placeholder cel material and is mutated (not replaced) by
+    // loadAtlas so captured references stay valid.
     group.userData = {
         mat, flash: 0, doll,
         torso: joints.get('torso').children[0],
         head: joints.get('head').children[0],
         fist: joints.get('armFore.R').children[0],
+        mats: [mat],
     };
     doll.loadAtlas();
     loadFaceAtlas(face, def.key);

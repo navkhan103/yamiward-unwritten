@@ -770,7 +770,12 @@ export class CombatEngine {
         if (!blocked && def.state === State.ATTACKING && def.armorLeft > 0 && dArmorWindow &&
             !def.airborne && !m.isSuper) {
             def.armorLeft--;
-            const chip = Math.max(1, Math.round(m.damage * 0.5));
+            // What armor COSTS. At 0.5 the armored fighter eats half and walks
+            // through, which is close to free: Iron Advance out-trades every
+            // opener in the cast because absorbing one is cheaper than blocking
+            // it. The scale is per-move so the price can be authored per armor
+            // move rather than balanced globally.
+            const chip = Math.max(1, Math.round(m.damage * (def.move.armorChip ?? 0.5)));
             def.health = Math.max(0, def.health - chip);
             att.meter = clamp(att.meter + (m.meterGainAttacker ?? 6) * 0.5, 0, 100);
             this.hitstop = Math.round((m.hitstop ?? 6) * 0.7);

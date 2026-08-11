@@ -33,7 +33,7 @@ import { createTimeCtl, createKOCam } from './motionfx.js';
 import { createIntroDirector } from './introdirector.js';
 import { introLines } from './intro-lines.js';
 import { createLadder } from './ladder.js';
-import { Fighter3D, loadVRM, driveFromEngine } from './fighter3d.js';
+import { Fighter3D, loadVRM, driveFromEngine, applyFighterLook, resolveModelUrl } from './fighter3d.js';
 import { HitSparks } from './hitsparks.js';
 
 const FIXED_DT = 1 / 60;
@@ -177,15 +177,48 @@ async function setStage(id) {
  * Until per-fighter models exist, everyone loads the same stand-in — the point
  * of this path is to prove combat-driven 3D animation, not the roster art.
  */
+// Roster keys that have a REAL per-fighter model exported. Anyone not listed
+// wears the shared stand-in in their clan palette. Upgrading a fighter is:
+// drop assets/models/<key>.vrm in, add the key here.
+const MODELS_AVAILABLE = new Set();
+
+/**
+ * Character lighting for the 3D path, added once.
+ *
+ * The stage lights were tuned for FLAT paper-doll planes, which take a single
+ * strong key and read fine. Real geometry has a shaded side, and on the night
+ * stages (Spotlight Roof especially) the fighters came out as murky silhouettes
+ * — visible immediately in the first 3D match shot. These follow the arena
+ * rather than the sun: a warm key, a cool fill from the opposite side so the
+ * shadow side still carries form, and a little ambient to lift the floor.
+ */
+let lit3D = false;
+function ensure3DLighting() {
+    if (lit3D) return;
+    lit3D = true;
+    const k = new THREE.DirectionalLight(0xfff2e6, 1.35); k.position.set(3, 5, 5); scene.add(k);
+    const f = new THREE.DirectionalLight(0x9bd0ff, 0.75); f.position.set(-4, 2.5, 2); scene.add(f);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.26));
+}
+
 function build3DFighter(def) {
+    ensure3DLighting();
     const g = new THREE.Group();
     // Stubs keep any stray reader (syncMeshes' placeholder branch, teardown)
     // harmless before the model lands.
     g.userData = { f3d: null, flash: 0, mats: [], mat: null, def };
-    loadVRM('./assets/models/tetsuki.vrm').then((vrm) => {
+    loadVRM(resolveModelUrl(def.key, MODELS_AVAILABLE)).then((vrm) => {
+        // Retint to the fighter's clan palette BEFORE the first compile, so the
+        // shader programs are built once with their final colours.
+        applyFighterLook(vrm, def.key, def.rimColor);
         const box = new THREE.Box3().setFromObject(vrm.scene);
         const h = (box.max.y - box.min.y) || 1.5;
-        vrm.scene.scale.setScalar(1.8 / h);
+        // Archetype build: a grappler should read heavier than a zoner even on a
+        // shared body. Height comes from maxHealth's spread, which already
+        // encodes "how big is this fighter" in the design.
+        const bulk = def.archetype === 'GRAPPLER' ? 1.10 : def.archetype === 'ZONER' ? 0.96 : 1.0;
+        const s = 1.8 / h;
+        vrm.scene.scale.set(s * bulk, s * (def.archetype === 'GRAPPLER' ? 1.04 : 1.0), s * bulk);
         g.add(vrm.scene);
         g.userData.f3d = new Fighter3D(vrm);
         compileSubtree(g);
@@ -1043,6 +1076,7 @@ function frame(now) {
 
     if (!engine) {                      // still on character select
         stage?.update(dt);              // the arena keeps breathing behind the menu
+        if (rosterPreview) rosterPreview.forEach((f) => f.update(dt));
         if (preview3d) {                // ?vrm= 3D preview: slow turntable + spring bones
             preview3d.update(dt);
             // Turntable only when showcasing the model; a clip demo holds still
@@ -1202,6 +1236,7 @@ camera.lookAt(0, 1.2, 0);
 // ---------------------------------------------------------------------------
 let preview3d = null;
 let preview3dHold = false;   // true while a clip demo is being judged
+let rosterPreview = null;    // ?roster=1 line-up
 
 async function startVrmPreview(nameParam) {
     document.getElementById('select')?.setAttribute('hidden', '');
@@ -1262,8 +1297,51 @@ async function startVrmPreview(nameParam) {
     }
 }
 
+/**
+ * `?roster=1` — line the whole cast up in one shot. This is the only way to
+ * judge whether eight palettes actually read as eight different fighters, which
+ * a one-at-a-time preview cannot tell you.
+ */
+async function startRosterPreview() {
+    document.getElementById('select')?.setAttribute('hidden', '');
+    const note = document.createElement('div');
+    note.style.cssText = 'position:fixed;left:0;right:0;top:14px;text-align:center;font:600 15px system-ui;color:#9be8e0;text-shadow:0 1px 4px #000;z-index:50;pointer-events:none';
+    note.textContent = 'loading roster …';
+    document.body.appendChild(note);
+    scene.add(new THREE.DirectionalLight(0xfff2e6, 1.4).translateY(0));
+    const kl = new THREE.DirectionalLight(0xfff2e6, 1.4); kl.position.set(2, 5, 6); scene.add(kl);
+    const fl = new THREE.DirectionalLight(0x9bd0ff, 0.7); fl.position.set(-4, 2, 3); scene.add(fl);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+    const gap = 1.15, x0 = -((ROSTER.length - 1) * gap) / 2;
+    rosterPreview = [];
+    for (let i = 0; i < ROSTER.length; i++) {
+        const key = ROSTER[i], def = CHARACTERS[key];
+        try {
+            const vrm = await loadVRM(resolveModelUrl(key, MODELS_AVAILABLE));
+            applyFighterLook(vrm, key, def.rimColor);
+            const box = new THREE.Box3().setFromObject(vrm.scene);
+            const h = (box.max.y - box.min.y) || 1.5;
+            const bulk = def.archetype === 'GRAPPLER' ? 1.10 : def.archetype === 'ZONER' ? 0.96 : 1.0;
+            const s = 1.8 / h;
+            vrm.scene.scale.set(s * bulk, s * (def.archetype === 'GRAPPLER' ? 1.04 : 1.0), s * bulk);
+            vrm.scene.position.set(x0 + i * gap, 0, 0);
+            vrm.scene.rotation.y = 0.15;
+            scene.add(vrm.scene);
+            rosterPreview.push(new Fighter3D(vrm));
+            note.textContent = `roster ${i + 1}/${ROSTER.length} — ${key}`;
+        } catch (e) { console.warn('[roster]', key, e); }
+    }
+    camera.position.set(0, 1.6, 7.4);
+    camera.lookAt(0, 0.95, 0);
+    note.textContent = 'ROSTER — eight fighters, one body, clan palettes';
+    window.__rosterDbg = { scene, camera, renderer, fx, list: rosterPreview,
+        pump: (n = 1) => { for (let i = 0; i < n; i++) { rosterPreview.forEach((f) => f.update(1 / 60)); fx.render(1 / 60); } } };
+}
+
 const _vrmParam = new URLSearchParams(location.search).get('vrm');
-if (_vrmParam) startVrmPreview(_vrmParam);
+const _rosterParam = new URLSearchParams(location.search).has('roster');
+if (_rosterParam) startRosterPreview();
+else if (_vrmParam) startVrmPreview(_vrmParam);
 else showSelect();
 requestAnimationFrame(frame);
 
@@ -1285,4 +1363,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608111856-c52d9d
+// yw-202608111919-3885c4

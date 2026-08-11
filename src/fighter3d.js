@@ -40,6 +40,91 @@ export async function loadVRM(url) {
 }
 
 // ---------------------------------------------------------------------------
+// Per-fighter appearance
+// ---------------------------------------------------------------------------
+// One VRM body, eight fighters. VRoid names its materials by convention
+// (`..._SKIN`, `..._HAIR`, `..._CLOTH_01`, `Onepiece`, `Shoes`, `_EYE`, plus a
+// matching `(Outline)` for each), which gives a reliable seam to retint without
+// authoring eight models. Each palette is built from the character's canon clan
+// colour so the roster reads at a glance — the yokai each fighter descends from
+// is the design brief.
+//
+// This is a STAND-IN strategy, not the destination: real per-fighter models
+// replace these one at a time, and dropping assets/models/<key>.vrm in is all
+// that takes (see resolveModelUrl).
+
+const PALETTES = {
+    tetsuki:  { skin: 0xc9b6ad, hair: 0x241a1c, cloth1: 0x8e2018, cloth2: 0x2a1a18, shoes: 0x1a1214, eye: 0xe51e25 }, // oni: ash skin, forge red
+    // Yukiwari is the snow fighter, but a near-white palette blew out to a
+    // featureless blob once bloom hit it (roster QA). Pulled down into pale
+    // blue-greys: still unmistakably "snow", still has readable form.
+    yukiwari: { skin: 0xdccfc9, hair: 0xa9c4d4, cloth1: 0x9fc0c6, cloth2: 0x63879a, shoes: 0x546f7e, eye: 0x9be8e0 }, // yukionna
+    raiga:    { skin: 0xd9b89a, hair: 0x1c2b4a, cloth1: 0x2a4f8f, cloth2: 0x14203a, shoes: 0x0f1626, eye: 0x4a8fe8 }, // raiju: storm blue
+    mayoi:    { skin: 0xf0d9c2, hair: 0x3b2a34, cloth1: 0x2f6f63, cloth2: 0x7a2a52, shoes: 0x241a22, eye: 0x5be0c8 }, // kitsune: jade + fox rose
+    shigure:  { skin: 0xe3d6d0, hair: 0x2b2540, cloth1: 0x4a3f78, cloth2: 0x241f38, shoes: 0x191527, eye: 0x7c6fd4 }, // ameonna: rain violet
+    tsukimi:  { skin: 0xf6ecea, hair: 0xe8dcf5, cloth1: 0xbfb0d8, cloth2: 0x6f6390, shoes: 0x4a4266, eye: 0xd8c9f0 }, // tsukiusagi: moon pale
+    kazakiri: { skin: 0xdcc3b4, hair: 0x2a1420, cloth1: 0x6e2a5e, cloth2: 0x2a1626, shoes: 0x1d1019, eye: 0xa0468c }, // tengu: plum + shadow
+    yumihari: { skin: 0xe8c9a0, hair: 0x30240f, cloth1: 0x9c6a1c, cloth2: 0x2e2413, shoes: 0x1f1a10, eye: 0xe0a83c }, // ryu: gold scale
+};
+
+/** Multiply a hex by a factor, for deriving a shade/outline tone. */
+function darken(hex, f) {
+    return new THREE.Color(hex).multiplyScalar(f);
+}
+
+/**
+ * Retint a loaded VRM to a fighter's palette.
+ *
+ * MToon carries several colour slots and they must move together or the model
+ * looks wrong under stage light: `color` is the lit tone, `shadeColorFactor` is
+ * what the shaded side becomes (leaving it white makes a dark outfit glow in
+ * shadow), and `outlineColorFactor` is the ink line. `parametricRimColorFactor`
+ * gets the clan colour, which is what actually separates eight silhouettes in a
+ * dark arena.
+ */
+export function applyFighterLook(vrm, key, rim) {
+    const p = PALETTES[key];
+    if (!p) return;
+    const rimColor = new THREE.Color(rim ?? 0xffffff);
+
+    vrm.scene.traverse((o) => {
+        if (!o.isMesh) return;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+            if (!m || !m.name) continue;
+            const n = m.name;
+            let tint = null;
+            if (/_SKIN/.test(n)) tint = p.skin;
+            else if (/_HAIR/.test(n)) tint = p.hair;
+            else if (/Tops_01/.test(n)) tint = p.cloth1;
+            else if (/Tops_02|Onepiece/.test(n)) tint = p.cloth2;
+            else if (/Shoes/.test(n)) tint = p.shoes;
+            else if (/EyeIris/.test(n)) tint = p.eye;
+            if (tint === null) continue;   // face lines, eye whites, highlights: leave alone
+
+            if (m.color) m.color.set(tint);
+            // Shade tone must follow the lit tone or the dark side goes pale.
+            if (m.shadeColorFactor) m.shadeColorFactor.copy(darken(tint, 0.55));
+            if (m.outlineColorFactor) m.outlineColorFactor.copy(darken(tint, 0.18));
+            // Clan colour as the rim — the cheapest way to tell eight fighters
+            // apart at a glance in a night stage.
+            if (m.parametricRimColorFactor && !/_EYE|Eyeline|Brow|Mouth/.test(n)) {
+                m.parametricRimColorFactor.copy(rimColor).multiplyScalar(0.35);
+            }
+            m.needsUpdate = true;
+        }
+    });
+}
+
+/**
+ * Where a fighter's model lives. A real per-fighter export wins if present;
+ * otherwise everyone shares the stand-in and is told apart by palette.
+ */
+export function resolveModelUrl(key, available) {
+    return (available && available.has(key)) ? `./assets/models/${key}.vrm` : './assets/models/tetsuki.vrm';
+}
+
+// ---------------------------------------------------------------------------
 // Pose library
 // ---------------------------------------------------------------------------
 // A POSE is a partial map { boneName: [x,y,z] } of Euler radians applied to the
@@ -60,10 +145,14 @@ const REST = {
 };
 
 // A bladed fighting guard: weight low, lead shoulder in, fists up.
+// Upper-arm z was -0.85/0.80 in the first pass, which left the arms SPLAYED
+// out from the body like an A-pose (visible immediately on the roster line-up).
+// A real guard keeps the elbows in against the ribs — z near -1.15 — and does
+// the work with the forearms.
 const GUARD = {
     [B.Spine]: [0.10, 0.20, 0], [B.Chest]: [0.05, 0.12, 0],
-    [B.LeftUpperArm]: [-0.55, 0.15, -0.85], [B.LeftLowerArm]: [-1.35, -0.20, -0.25],
-    [B.RightUpperArm]: [-0.45, -0.15, 0.80], [B.RightLowerArm]: [-1.55, 0.20, 0.25],
+    [B.LeftUpperArm]: [-0.62, 0.18, -1.16], [B.LeftLowerArm]: [-1.45, -0.25, -0.30],
+    [B.RightUpperArm]: [-0.52, -0.18, 1.12], [B.RightLowerArm]: [-1.62, 0.25, 0.30],
     [B.LeftUpperLeg]: [-0.12, 0, 0.10], [B.LeftLowerLeg]: [0.22, 0, 0],
     [B.RightUpperLeg]: [-0.10, 0, -0.12], [B.RightLowerLeg]: [0.26, 0, 0],
     [B.Head]: [0.06, 0.10, 0],

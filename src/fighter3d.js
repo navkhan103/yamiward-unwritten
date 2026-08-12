@@ -154,6 +154,88 @@ export function applyFighterLook(vrm, key, rim) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Per-fighter BUILD
+// ---------------------------------------------------------------------------
+// Colour alone cannot carry eight identities — recolouring one body gives you
+// eight tinted copies of the same guy, which is exactly what it looks like.
+// SILHOUETTE is what actually reads at fighting-game distance, so each fighter
+// also gets a skeleton shape.
+//
+// These scale the RAW bone nodes. The animation system writes ROTATION to the
+// NORMALIZED nodes, and three-vrm keeps those hierarchies separate, so build
+// and pose never fight each other (verified before relying on it).
+//
+// Values are per-bone [x, y, z] multipliers. Scaling a bone scales its children,
+// so `hips` is overall mass, `chest` is the V-taper, and limb bones are girth.
+// LIMB BONES MUST SCALE UNIFORMLY. A bone's children continue down the chain,
+// so a non-uniform scale on an arm shears every joint below it — at 1.26x on X
+// and Z the arms rendered as flat slabs (close-up QA). Only the torso, which is
+// effectively one segment, takes a non-uniform scale. Limbs and head get a
+// single number and are expanded below.
+const BUILDS = {
+    // Oni grappler: the biggest thing in the ward. Heavy chest, thick limbs,
+    // small head against a big body (the classic "reads as huge" trick).
+    tetsuki:  { hips: [1.12, 1.0, 1.12], chest: [1.24, 1.05, 1.20], upperArm: 1.13, lowerArm: 1.10, upperLeg: 1.10, head: 0.93, neck: 1.12 },
+    // Yukionna zoner: tall, narrow, long-limbed. Takes up space without mass.
+    yukiwari: { hips: [0.91, 1.0, 0.91], chest: [0.89, 1.02, 0.89], upperArm: 0.93, lowerArm: 0.93, upperLeg: 1.02, head: 1.02, neck: 0.94 },
+    // Raiju rushdown: athletic, compact, springy.
+    raiga:    { hips: [1.02, 0.98, 1.02], chest: [1.08, 1.0, 1.06], upperArm: 1.04, lowerArm: 1.02, upperLeg: 1.02, head: 0.98, neck: 1.0 },
+    // Kitsune trickster: small and light, larger head — reads younger, quicker.
+    mayoi:    { hips: [0.90, 0.95, 0.90], chest: [0.88, 0.96, 0.88], upperArm: 0.90, lowerArm: 0.90, upperLeg: 0.94, head: 1.09, neck: 0.90 },
+    // Ameonna trickster: tall, thin, drawn-out.
+    shigure:  { hips: [0.91, 1.02, 0.91], chest: [0.90, 1.04, 0.90], upperArm: 0.94, lowerArm: 0.95, upperLeg: 1.03, head: 1.03, neck: 0.95 },
+    // Tsukiusagi rushdown: smallest of the cast, big head, coiled.
+    tsukimi:  { hips: [0.88, 0.93, 0.88], chest: [0.86, 0.95, 0.86], upperArm: 0.88, lowerArm: 0.88, upperLeg: 0.92, head: 1.12, neck: 0.88 },
+    // Tengu zoner: long and lean, longest reach in the cast.
+    kazakiri: { hips: [0.94, 1.03, 0.94], chest: [0.96, 1.05, 0.94], upperArm: 1.06, lowerArm: 1.07, upperLeg: 1.05, head: 0.97, neck: 0.97 },
+    // Ryu rushdown: broad-shouldered, solid, second only to the oni.
+    yumihari: { hips: [1.05, 1.0, 1.05], chest: [1.15, 1.02, 1.11], upperArm: 1.08, lowerArm: 1.05, upperLeg: 1.05, head: 0.96, neck: 1.07 },
+};
+
+// Bones a build may address, mapped to the humanoid names they touch. Arms and
+// legs are symmetric, so one entry drives both sides.
+const BUILD_BONES = {
+    hips: [B.Hips], chest: [B.Chest], neck: [B.Neck], head: [B.Head],
+    upperArm: [B.LeftUpperArm, B.RightUpperArm],
+    lowerArm: [B.LeftLowerArm, B.RightLowerArm],
+    upperLeg: [B.LeftUpperLeg, B.RightUpperLeg],
+    lowerLeg: [B.LeftLowerLeg, B.RightLowerLeg],
+};
+
+/** Give a fighter their body shape. Safe to call once, after load. */
+export function applyFighterBuild(vrm, key) {
+    const build = BUILDS[key];
+    if (!build || !vrm.humanoid?.getRawBoneNode) return;
+    for (const [slot, scale] of Object.entries(build)) {
+        // A number means uniform (limbs, head); an array is torso-only.
+        const s = typeof scale === 'number' ? [scale, scale, scale] : scale;
+        for (const bone of (BUILD_BONES[slot] || [])) {
+            const node = vrm.humanoid.getRawBoneNode(bone);
+            if (node) node.scale.set(s[0], s[1], s[2]);
+        }
+    }
+}
+
+/**
+ * Ink line weight.
+ *
+ * VRoid ships outlines at 0.0006 world units, which is invisible past about a
+ * metre — fine for a portrait viewer, useless at fighting-game camera distance.
+ * A heavier line is most of what separates "3D model" from "anime character".
+ */
+export function applyOutline(vrm, width = 0.0035) {
+    vrm.scene.traverse((o) => {
+        if (!o.isMesh) return;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+            if (!m || !/Outline/.test(m.name || '')) continue;
+            if ('outlineWidthFactor' in m) m.outlineWidthFactor = width;
+            m.needsUpdate = true;
+        }
+    });
+}
+
 /**
  * Where a fighter's model lives. A real per-fighter export wins if present;
  * otherwise everyone shares the stand-in and is told apart by palette.
@@ -193,8 +275,14 @@ const REST = {
 // the work with the forearms.
 const GUARD = {
     [B.Spine]: [0.10, 0.20, 0], [B.Chest]: [0.05, 0.12, 0],
-    [B.LeftUpperArm]: [-0.62, 0.18, -1.16], [B.LeftLowerArm]: [-1.45, -0.25, -0.30],
-    [B.RightUpperArm]: [-0.52, -0.18, 1.12], [B.RightLowerArm]: [-1.62, 0.25, 0.30],
+    // Solved rather than guessed. Measuring the SHOULDER->ELBOW vector (the
+    // shoulder->hand vector lies, because the elbow bend carries the hand
+    // forward) gives: z -1.16 = 50 deg drop / 0.186 lateral, -1.5 = 61 / 0.132,
+    // -1.7 = 69 deg / 0.092. A boxing guard wants ~70 with the elbows tucked,
+    // so -1.7 it is. Two earlier passes at -0.85 and -1.16 both still read as an
+    // A-pose on screen.
+    [B.LeftUpperArm]: [-0.62, 0.18, -1.70], [B.LeftLowerArm]: [-1.45, -0.25, -0.30],
+    [B.RightUpperArm]: [-0.52, -0.18, 1.66], [B.RightLowerArm]: [-1.62, 0.25, 0.30],
     [B.LeftUpperLeg]: [-0.12, 0, 0.10], [B.LeftLowerLeg]: [0.22, 0, 0],
     [B.RightUpperLeg]: [-0.10, 0, -0.12], [B.RightLowerLeg]: [0.26, 0, 0],
     [B.Head]: [0.06, 0.10, 0],
@@ -300,6 +388,11 @@ function lerpPose(a, b, u, out) {
 }
 const ZERO = [0, 0, 0];
 
+// Expressions the fighter drives. Everything here is eased toward its target
+// every frame, so any one of them can be the active reaction without leaving a
+// previous one stuck on.
+const FACE_SET = ['angry', 'sad', 'happy', 'surprised', 'neutral'];
+
 /**
  * Controller wrapping a loaded VRM. Plays procedural clips, blends between them,
  * and exposes setState() for the combat bridge to call each frame.
@@ -319,6 +412,8 @@ export class Fighter3D {
         this._from = {};         // frozen applied pose at the last switch
         this._cur = {};          // scratch sampled pose
         this._breath = 0;
+        this._blinkT = 1.4;      // seconds until the next blink
+        this._blinkPhase = 0;    // seconds remaining in the current blink
         this._applied = {};      // last applied euler per bone (blend source)
         for (const b of BONES) this._applied[b] = (GUARD[b] || REST[b] || ZERO).slice();
     }
@@ -405,7 +500,58 @@ export class Fighter3D {
             node.rotation.set(x, y, z);
         }
 
+        this._face(dt);
         this.vrm.update(dt);   // spring bones (hair/cloth) + look-at
+    }
+
+    /**
+     * Faces. A VRM ships standard expressions (happy/angry/sad/surprised/blink)
+     * and leaving them at neutral is most of why a rigged model still reads as
+     * a mannequin — the body fights but the face never reacts. Expression is
+     * derived from the CLIP rather than plumbed separately, so every route into
+     * a state (player input, CPU, replay) drives the face for free.
+     *
+     * Weights are eased rather than set, because snapping an expression on and
+     * off is worse than having none.
+     */
+    _face(dt) {
+        const em = this.vrm.expressionManager;
+        if (!em) return;
+
+        let want = 'neutral', amount = 0;
+        switch (this._name) {
+            case 'light': case 'heavy': case 'low': case 'special':
+                want = 'angry'; amount = 0.85; break;
+            case 'hurt':
+                want = 'sad'; amount = 1.0; break;
+            case 'ko':
+                want = 'sad'; amount = 1.0; break;
+            case 'block':
+                want = 'angry'; amount = 0.45; break;
+            case 'win':
+                want = 'happy'; amount = 0.9; break;
+            default:
+                want = 'neutral'; amount = 0; break;
+        }
+
+        // Ease every non-target expression down, and the target up.
+        for (const name of FACE_SET) {
+            const cur = em.getValue(name) ?? 0;
+            const target = (name === want) ? amount : 0;
+            const k = target > cur ? 14 : 8;    // snap into a reaction, relax out of it
+            em.setValue(name, cur + (target - cur) * Math.min(1, dt * k));
+        }
+
+        // Blink only while composed — blinking through a hit looks broken.
+        this._blinkT -= dt;
+        if (this._blinkT <= 0) {
+            this._blinkPhase = 0.16;                  // seconds of closed eye
+            this._blinkT = 2.6 + (this._t % 1.7);     // deterministic-ish spacing, no RNG
+        }
+        const calm = (want === 'neutral' || want === 'happy');
+        this._blinkPhase = Math.max(0, this._blinkPhase - dt);
+        const blink = calm && this._blinkPhase > 0 ? Math.sin((this._blinkPhase / 0.16) * Math.PI) : 0;
+        em.setValue('blink', blink);
     }
 
     dispose() { VRMUtils.deepDispose(this.root); }

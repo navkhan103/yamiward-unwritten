@@ -33,7 +33,7 @@ import { createTimeCtl, createKOCam } from './motionfx.js';
 import { createIntroDirector } from './introdirector.js';
 import { introLines } from './intro-lines.js';
 import { createLadder } from './ladder.js';
-import { Fighter3D, loadVRM, prefetchVRM, driveFromEngine, applyFighterLook, resolveModelUrl } from './fighter3d.js';
+import { Fighter3D, loadVRM, prefetchVRM, driveFromEngine, applyFighterLook, applyFighterBuild, applyOutline, resolveModelUrl } from './fighter3d.js';
 import { HitSparks } from './hitsparks.js';
 
 const FIXED_DT = 1 / 60;
@@ -186,6 +186,11 @@ const MODELS_AVAILABLE = new Set();
 // model deep — every fighter currently loads the same stand-in in their clan
 // palette. Module-scope because both the select screen (to prefetch) and
 // startMatch (to build) need to agree on it.
+// Shared reference height for every fighter before their build is applied. The
+// engine uses cylinder hitboxes, not mesh bounds, so visual height differences
+// are free — they change silhouette without touching gameplay.
+const FIGHTER_HEIGHT = 1.8;
+
 const USE_3D = new URLSearchParams(location.search).has('vrm3d');
 
 /**
@@ -217,14 +222,15 @@ function build3DFighter(def) {
         // Retint to the fighter's clan palette BEFORE the first compile, so the
         // shader programs are built once with their final colours.
         applyFighterLook(vrm, def.key, def.rimColor);
+        applyOutline(vrm);
+        // Normalise to a common height FIRST, from the untouched mesh — then
+        // apply the build. Doing it the other way round makes the bounding box
+        // include the build's own scaling, and the normalisation cancels exactly
+        // the height differences the build exists to create.
         const box = new THREE.Box3().setFromObject(vrm.scene);
         const h = (box.max.y - box.min.y) || 1.5;
-        // Archetype build: a grappler should read heavier than a zoner even on a
-        // shared body. Height comes from maxHealth's spread, which already
-        // encodes "how big is this fighter" in the design.
-        const bulk = def.archetype === 'GRAPPLER' ? 1.10 : def.archetype === 'ZONER' ? 0.96 : 1.0;
-        const s = 1.8 / h;
-        vrm.scene.scale.set(s * bulk, s * (def.archetype === 'GRAPPLER' ? 1.04 : 1.0), s * bulk);
+        vrm.scene.scale.setScalar(FIGHTER_HEIGHT / h);
+        applyFighterBuild(vrm, def.key);
         g.add(vrm.scene);
         g.userData.f3d = new Fighter3D(vrm);
         compileSubtree(g);
@@ -1327,11 +1333,11 @@ async function startRosterPreview() {
         try {
             const vrm = await loadVRM(resolveModelUrl(key, MODELS_AVAILABLE));
             applyFighterLook(vrm, key, def.rimColor);
+            applyOutline(vrm);
             const box = new THREE.Box3().setFromObject(vrm.scene);
             const h = (box.max.y - box.min.y) || 1.5;
-            const bulk = def.archetype === 'GRAPPLER' ? 1.10 : def.archetype === 'ZONER' ? 0.96 : 1.0;
-            const s = 1.8 / h;
-            vrm.scene.scale.set(s * bulk, s * (def.archetype === 'GRAPPLER' ? 1.04 : 1.0), s * bulk);
+            vrm.scene.scale.setScalar(FIGHTER_HEIGHT / h);
+            applyFighterBuild(vrm, key);   // after normalisation — see build3DFighter
             vrm.scene.position.set(x0 + i * gap, 0, 0);
             vrm.scene.rotation.y = 0.15;
             scene.add(vrm.scene);
@@ -1371,4 +1377,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608121606-6a3190
+// yw-202608121632-8c1a38

@@ -1,6 +1,6 @@
 {
- "build": "yw-202608121606-6a3190",
- "created": "2026-08-12T16:06:54.492Z",
+ "build": "yw-202608121632-8c1a38",
+ "created": "2026-08-12T16:33:02.078Z",
  "files": {
   "assets/crests/ameonna.webp": {
    "sha256": "0ce90c85bfe8bc05a86b8ce931cc4ce1bf6ca9500c575b1fb7ed68447bc9abeb",
@@ -279,7 +279,7 @@
    "bytes": 3214
   },
   "index.html": {
-   "sha256": "19ab83cc885bc09f5650471f11810841ebc8b766febf210c0dc5cf896e348019",
+   "sha256": "4d9dc2be3fb5b0b5f9b93e04997b8eaf4a7cc57adebb94cd0cc4f15db17b22e5",
    "bytes": 5417
   },
   "src/CombatEngine.js": {
@@ -307,8 +307,8 @@
    "bytes": 10976
   },
   "src/fighter3d.js": {
-   "sha256": "c42f6bd0f34db73914646ffbb26f5834cd663cd393e1a46d3c2d296f0403ec37",
-   "bytes": 23321
+   "sha256": "d7b45bd5caae1da7a6f594b09fdde98114201b290ba2d0bded1a517969c3621c",
+   "bytes": 31035
   },
   "src/hitsparks.js": {
    "sha256": "51984a419072eaee82c7ed9c703505cce27db55b737aa1f755e2c6c95dafa5c3",
@@ -331,8 +331,8 @@
    "bytes": 12737
   },
   "src/main.js": {
-   "sha256": "836453009b0c2c2f3b323388816e089d8413a652d431164790d6fb88ad1f0d97",
-   "bytes": 66324
+   "sha256": "8af452494bdfb13179afa48bd0b2024de0eef83bf4a507ac5e12d7b6eef467d0",
+   "bytes": 66540
   },
   "src/motionfx.js": {
    "sha256": "153d3f0a0c61931f239d9d2be6e6b55a7c5f57e1a6d26b4e9b221218335bc534",
@@ -367,7 +367,7 @@
    "bytes": 6028
   },
   "styles.css": {
-   "sha256": "c58e3cbfa03a1fc029720593278158ffa519a60fe0e97b4f754f61dbb3336879",
+   "sha256": "9625db05b01d8a699d8b12a614344ed9d829e112a690dd1e2b1ed61be15af7ba",
    "bytes": 16862
   },
   "vendor/addons/loaders/GLTFLoader.js": {

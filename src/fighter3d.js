@@ -19,12 +19,50 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils, VRMHumanBoneName as B } from '@pixiv/three-vrm';
 
+// ---------------------------------------------------------------------------
+// Model bytes cache
+// ---------------------------------------------------------------------------
+// A match needs TWO fighters from (currently) the same 16MB file. Calling
+// loader.loadAsync(url) per fighter downloads it twice — the requests fire in
+// parallel, so the browser's HTTP cache does not reliably coalesce them, and on
+// a static host that is 32MB across the wire before anyone throws a punch.
+//
+// So: fetch the bytes ONCE per URL (memoised promise), then parse per fighter.
+// Parsing twice is deliberate and required — it is what gives each fighter its
+// OWN materials, which is what lets the two of them wear different clan
+// palettes. Verified: re-parsing the same ArrayBuffer is safe (it is only ever
+// read) and the resulting materials are distinct objects, so a tint applied to
+// one fighter cannot leak into the other.
+const _bytes = new Map();   // url -> Promise<ArrayBuffer>
+
+function vrmBytes(url) {
+    let p = _bytes.get(url);
+    if (!p) {
+        p = fetch(url).then((r) => {
+            if (!r.ok) throw new Error(`${r.status} fetching ${url}`);
+            return r.arrayBuffer();
+        }).catch((e) => { _bytes.delete(url); throw e; });   // don't cache a failure
+        _bytes.set(url, p);
+    }
+    return p;
+}
+
+/**
+ * Warm the cache before the model is needed. Called while the player is still
+ * on the character-select screen, so the download overlaps the time they spend
+ * choosing instead of stalling the match start.
+ */
+export function prefetchVRM(url) { vrmBytes(url).catch(() => { /* surfaced at load */ }); }
+
 /** Load a .vrm and return the VRM object (has .scene, .humanoid, .update(dt)). */
 export async function loadVRM(url) {
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
 
-    const gltf = await loader.loadAsync(url);
+    const buf = await vrmBytes(url);
+    // parseAsync needs a path for resolving external resources; a VRM is a
+    // self-contained GLB, so '' is correct here.
+    const gltf = await loader.parseAsync(buf, '');
     const vrm = gltf.userData.vrm;
     if (!vrm) throw new Error('file is not a VRM (no userData.vrm)');
 

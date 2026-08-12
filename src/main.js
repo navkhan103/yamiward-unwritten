@@ -33,7 +33,7 @@ import { createTimeCtl, createKOCam } from './motionfx.js';
 import { createIntroDirector } from './introdirector.js';
 import { introLines } from './intro-lines.js';
 import { createLadder } from './ladder.js';
-import { Fighter3D, loadVRM, driveFromEngine, applyFighterLook, resolveModelUrl } from './fighter3d.js';
+import { Fighter3D, loadVRM, prefetchVRM, driveFromEngine, applyFighterLook, resolveModelUrl } from './fighter3d.js';
 import { HitSparks } from './hitsparks.js';
 
 const FIXED_DT = 1 / 60;
@@ -181,6 +181,12 @@ async function setStage(id) {
 // wears the shared stand-in in their clan palette. Upgrading a fighter is:
 // drop assets/models/<key>.vrm in, add the key here.
 const MODELS_AVAILABLE = new Set();
+
+// `?vrm3d=1` swaps in real 3D (VRM) fighters. Opt-in while the 3D roster is one
+// model deep — every fighter currently loads the same stand-in in their clan
+// palette. Module-scope because both the select screen (to prefetch) and
+// startMatch (to build) need to agree on it.
+const USE_3D = new URLSearchParams(location.search).has('vrm3d');
 
 /**
  * Character lighting for the 3D path, added once.
@@ -584,11 +590,8 @@ function startMatch(p1Key, p2Key, opts = {}) {
     // Paper-doll rig by default (SPEC-PAPERDOLL.md); `?placeholder=1` keeps
     // the primitive capsules reachable for A/B and as the proven fallback.
     const wantPlaceholder = new URLSearchParams(location.search).has('placeholder');
-    // `?vrm3d=1` swaps in real 3D (VRM) fighters. Opt-in while the 3D roster is
-    // one model deep — every fighter currently loads the same stand-in.
-    const want3D = new URLSearchParams(location.search).has('vrm3d');
     const buildFighter = (def) => {
-        if (want3D) return build3DFighter(def);
+        if (USE_3D) return build3DFighter(def);
         if (wantPlaceholder) return buildPlaceholder(def);
         try { return buildDoll(def); }
         catch (err) { console.warn('doll build failed, using placeholder', err); return buildPlaceholder(def); }
@@ -665,6 +668,11 @@ function showSelect() {
     const root = document.getElementById('select');
     const grid = document.getElementById('select-grid');
     if (!root || !grid) { startMatch('tetsuki', 'raiga'); return; }
+
+    // Start pulling the 3D model down NOW. Choosing a fighter takes a few
+    // seconds of human time; spending it on the download means the match starts
+    // against a warm cache instead of a cold 16MB fetch.
+    if (USE_3D) for (const k of ROSTER) prefetchVRM(resolveModelUrl(k, MODELS_AVAILABLE));
 
     // Resident tie-in: highlight the player's bloodline champion if theirs.
     let residentPick = null;
@@ -1363,4 +1371,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608111919-3885c4
+// yw-202608121411-62e532

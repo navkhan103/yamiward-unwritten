@@ -145,9 +145,44 @@ export function applyFighterLook(vrm, key, rim) {
             if (m.shadeColorFactor) m.shadeColorFactor.copy(darken(tint, 0.55));
             if (m.outlineColorFactor) m.outlineColorFactor.copy(darken(tint, 0.18));
             // Clan colour as the rim — the cheapest way to tell eight fighters
-            // apart at a glance in a night stage.
+            // apart at a glance in a night stage, and the single strongest
+            // "anime" cue available: a bright edge is what separates a character
+            // from the backdrop instead of letting them sink into it.
             if (m.parametricRimColorFactor && !/_EYE|Eyeline|Brow|Mouth/.test(n)) {
-                m.parametricRimColorFactor.copy(rimColor).multiplyScalar(0.35);
+                m.parametricRimColorFactor.copy(rimColor).multiplyScalar(0.16);
+                // Tight rim that hugs the silhouette instead of coating the
+                // fighter. Tuned down across three passes (0.62/p3.6 -> 0.42/p5.2
+                // -> 0.16/p6.5) because LIMBS ARE CYLINDERS: on an arm or a leg
+                // most of the visible surface sits at a grazing angle, so a rim
+                // wide enough to look right on a flat chest repaints every limb.
+                // Tetsuki was solid gold with only his chest showing clan red.
+                // Judge rim width on a limb, never on the torso.
+                if ('parametricRimFresnelPowerFactor' in m) m.parametricRimFresnelPowerFactor = 6.5;
+                if ('parametricRimLiftFactor' in m) m.parametricRimLiftFactor = 0.0;
+                // Read the shader before touching these two, they are coupled:
+                //   rim  = parametricRimColor * fresnel  + matcapFactor * matcap
+                //   col += mix(1.0, directSpecular, rimLightingMixFactor) * rim
+                // So rimLightingMixFactor 1.0 means "modulate by scene light"
+                // (which quietly SUPPRESSES the term on a dark stage) and 0.0
+                // means "always full". Setting it to 0 for a predictable edge is
+                // right, but it also unleashed the second half of that sum: VRoid
+                // ships a MATCAP at full white, and an unmodulated matcap painted
+                // Tetsuki head to toe in gold sheen and buried his clan red. The
+                // matcap has to be killed for the constant rim to be usable.
+                if ('rimLightingMixFactor' in m) m.rimLightingMixFactor = 0.0;
+                // Kill VRoid's spherical sheen — it is a portrait-viewer look and
+                // it fights a cel-shaded fighter under stage light.
+                if (m.matcapFactor) m.matcapFactor.setScalar(0.0);
+            }
+
+            // Crisper cel banding. MToon ships a soft ramp, which on a night
+            // stage reads as muddy gradient rather than the two-tone anime look
+            // the art direction is built on. `toony` hardens the terminator;
+            // `shift` widens the lit side so faces do not sit in shadow.
+            if (!/_EYE|Eyeline|Brow|Mouth/.test(n)) {
+                if ('shadingToonyFactor' in m) m.shadingToonyFactor = 0.95;
+                if ('shadingShiftFactor' in m) m.shadingShiftFactor = -0.05;
+                if ('giEqualizationFactor' in m) m.giEqualizationFactor = 0.9;
             }
             m.needsUpdate = true;
         }

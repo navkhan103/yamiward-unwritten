@@ -175,6 +175,53 @@ export function createInkNoirFX(renderer, scene, camera, opts = {}) {
                 uniform float crush;
                 varying vec2 vUv;
 
+                // FXAA (Lottes' console variant, trimmed).
+                //
+                // Works on LINEAR light here, which is unusual — FXAA normally
+                // wants perceptual values. It is deliberate: rt0 holds raw linear
+                // light and everything downstream in this shader assumes that,
+                // so anti-aliasing after the grade would mean a second full-frame
+                // sample. Luma is taken with a sqrt to approximate a perceptual
+                // response, which is enough for edge DETECTION even though it is
+                // not a true luminance.
+                float fxaaLuma(vec3 c) { return sqrt(dot(c, vec3(0.299, 0.587, 0.114))); }
+
+                vec4 fxaa(sampler2D tex, vec2 uv, vec2 res) {
+                    vec2 px = 1.0 / res;
+                    vec3 rgbM = texture2D(tex, uv).rgb;
+                    float lM  = fxaaLuma(rgbM);
+                    float lNW = fxaaLuma(texture2D(tex, uv + vec2(-1.0, -1.0) * px).rgb);
+                    float lNE = fxaaLuma(texture2D(tex, uv + vec2( 1.0, -1.0) * px).rgb);
+                    float lSW = fxaaLuma(texture2D(tex, uv + vec2(-1.0,  1.0) * px).rgb);
+                    float lSE = fxaaLuma(texture2D(tex, uv + vec2( 1.0,  1.0) * px).rgb);
+
+                    float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE)));
+                    float lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
+
+                    // Flat area: leave it alone. Skipping the blur here is what
+                    // keeps FXAA from softening the whole image.
+                    float range = lMax - lMin;
+                    if (range < max(0.0312, lMax * 0.125)) return vec4(rgbM, 1.0);
+
+                    vec2 dir = vec2(
+                        -((lNW + lNE) - (lSW + lSE)),
+                          ((lNW + lSW) - (lNE + lSE))
+                    );
+                    float dirReduce = max((lNW + lNE + lSW + lSE) * 0.03125, 0.0078125);
+                    float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
+                    dir = clamp(dir * rcpDirMin, -8.0, 8.0) * px;
+
+                    vec3 rgbA = 0.5 * (
+                        texture2D(tex, uv + dir * (1.0 / 3.0 - 0.5)).rgb +
+                        texture2D(tex, uv + dir * (2.0 / 3.0 - 0.5)).rgb);
+                    vec3 rgbB = rgbA * 0.5 + 0.25 * (
+                        texture2D(tex, uv + dir * -0.5).rgb +
+                        texture2D(tex, uv + dir *  0.5).rgb);
+
+                    float lB = fxaaLuma(rgbB);
+                    return vec4((lB < lMin || lB > lMax) ? rgbA : rgbB, 1.0);
+                }
+
                 // ACES filmic approximation (Narkowicz) — matches the plain
                 // renderer path's ACESFilmicToneMapping closely enough for grade.
                 vec3 acesApprox(vec3 x) {
@@ -217,7 +264,15 @@ export function createInkNoirFX(renderer, scene, camera, opts = {}) {
                     // constants are display-space numbers.
 
                     // -- linear-space: scene + bloom (impact boosts bloom)
-                    vec4 color = texture2D(tScene, uv);
+                    // FXAA first. MSAA is the better tool but it is held back as
+                    // GPU-unproven on the player's hardware, and jagged edges are
+                    // one of the loudest "cheap" signals a game gives off — worst
+                    // of all on a cel-shaded fighter, whose whole look is hard
+                    // colour boundaries and a black ink line. This runs inside the
+                    // composite instead of as its own pass, so it costs no extra
+                    // render target: sample the scene through an edge-aware blur
+                    // rather than sampling it flat.
+                    vec4 color = fxaa(tScene, uv, resolution);
                     vec4 bloom = texture2D(tBloom, uv); // half-res texture, 1:1 UV
                     float impactBoost = 1.0 + impact * 0.5;
                     vec3 hdr = color.rgb + bloom.rgb * bloomStrength * impactBoost;

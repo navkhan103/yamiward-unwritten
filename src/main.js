@@ -34,6 +34,7 @@ import { createIntroDirector } from './introdirector.js';
 import { introLines } from './intro-lines.js';
 import { createLadder } from './ladder.js';
 import { Fighter3D, loadVRM, prefetchVRM, driveFromEngine, applyFighterLook, applyFighterBuild, applyOutline, resolveModelUrl } from './fighter3d.js';
+import { attachAccessories } from './accessories.js';
 import { HitSparks } from './hitsparks.js';
 
 const FIXED_DT = 1 / 60;
@@ -207,9 +208,15 @@ let lit3D = false;
 function ensure3DLighting() {
     if (lit3D) return;
     lit3D = true;
-    const k = new THREE.DirectionalLight(0xfff2e6, 1.35); k.position.set(3, 5, 5); scene.add(k);
-    const f = new THREE.DirectionalLight(0x9bd0ff, 0.75); f.position.set(-4, 2.5, 2); scene.add(f);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.26));
+    // Three-point, the way a character is actually lit. Key reads the form,
+    // fill keeps the shadow side from going black, and the BACK light is the one
+    // that was missing — it rides the silhouette and lifts the fighter off the
+    // backdrop. Without it a dark fighter on a night stage is a hole in the
+    // frame, which is most of why the 3D path looked flat.
+    const k = new THREE.DirectionalLight(0xfff2e6, 1.30); k.position.set(3, 5, 5); scene.add(k);
+    const f = new THREE.DirectionalLight(0x9bd0ff, 0.70); f.position.set(-4, 2.5, 2); scene.add(f);
+    const back = new THREE.DirectionalLight(0xffffff, 0.70); back.position.set(-1.5, 4.5, -6); scene.add(back);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.24));
 }
 
 function build3DFighter(def) {
@@ -231,6 +238,7 @@ function build3DFighter(def) {
         const h = (box.max.y - box.min.y) || 1.5;
         vrm.scene.scale.setScalar(FIGHTER_HEIGHT / h);
         applyFighterBuild(vrm, def.key);
+        attachAccessories(vrm, def.key, def.rimColor);
         g.add(vrm.scene);
         g.userData.f3d = new Fighter3D(vrm);
         compileSubtree(g);
@@ -1338,6 +1346,7 @@ async function startRosterPreview() {
             const h = (box.max.y - box.min.y) || 1.5;
             vrm.scene.scale.setScalar(FIGHTER_HEIGHT / h);
             applyFighterBuild(vrm, key);   // after normalisation — see build3DFighter
+            attachAccessories(vrm, key, def.rimColor);
             vrm.scene.position.set(x0 + i * gap, 0, 0);
             vrm.scene.rotation.y = 0.15;
             scene.add(vrm.scene);
@@ -1377,4 +1386,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608121632-8c1a38
+// yw-202608121806-9c6acf

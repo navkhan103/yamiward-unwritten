@@ -159,7 +159,11 @@ export function applyFighterLook(vrm, key, rim) {
  * otherwise everyone shares the stand-in and is told apart by palette.
  */
 export function resolveModelUrl(key, available) {
-    return (available && available.has(key)) ? `./assets/models/${key}.vrm` : './assets/models/tetsuki.vrm';
+    // base.vrm is the SHARED stand-in and must stay generic — it is what the
+    // seven fighters without their own export are wearing. Keeping it separate
+    // from tetsuki.vrm is deliberate: it means a real, oni-specific Tetsuki can
+    // be dropped in without turning the whole roster into Tetsuki.
+    return (available && available.has(key)) ? `./assets/models/${key}.vrm` : './assets/models/base.vrm';
 }
 
 // ---------------------------------------------------------------------------

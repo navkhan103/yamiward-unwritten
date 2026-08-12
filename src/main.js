@@ -1248,7 +1248,7 @@ let rosterPreview = null;    // ?roster=1 line-up
 
 async function startVrmPreview(nameParam) {
     document.getElementById('select')?.setAttribute('hidden', '');
-    const raw = (nameParam === '1' || nameParam === 'true') ? 'tetsuki' : nameParam;
+    const raw = (nameParam === '1' || nameParam === 'true') ? 'base' : nameParam;
     const url = `./assets/models/${raw}.vrm`;
     const note = document.createElement('div');
     note.style.cssText = 'position:fixed;left:0;right:0;top:14px;text-align:center;font:600 15px system-ui;color:#9be8e0;text-shadow:0 1px 4px #000;z-index:50;pointer-events:none';
@@ -1371,4 +1371,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608121411-62e532
+// yw-202608121606-6a3190

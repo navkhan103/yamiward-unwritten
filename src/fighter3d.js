@@ -19,6 +19,19 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils, VRMHumanBoneName as B } from '@pixiv/three-vrm';
 import { attachAccessories } from './accessories.js';
+import { loadClipBundle, ClipPlayer } from './anim.js';
+
+// The baked mocap bundle, fetched once per session. A missing bundle is not an
+// error: the hand-authored pose system still runs, so a build without it plays
+// exactly as it did before.
+let _clipBundle;
+export function loadMocap(url = './assets/anim/clips.ywa') {
+    if (!_clipBundle) _clipBundle = loadClipBundle(url).catch((e) => {
+        console.warn('[anim] no mocap bundle, falling back to poses:', e.message);
+        return null;
+    });
+    return _clipBundle;
+}
 
 // ---------------------------------------------------------------------------
 // Model bytes cache
@@ -572,6 +585,49 @@ const WIN = {
     [B.LeftLowerArm]: [-0.5, 0, -0.3], [B.RightLowerArm]: [-0.5, 0, 0.3],
 };
 
+// ---------------------------------------------------------------------------
+// Mocap mapping
+// ---------------------------------------------------------------------------
+// The combat bridge speaks in ABSTRACT state names (idle/walk/light/hurt/...).
+// This is the only place those meet real clip names, so re-casting a move is a
+// one-line edit here rather than a change to the engine or the bridge.
+//
+// `trim` is the important field. A mocap take is authored as a complete
+// performance: settle into stance, execute, return to stance. A fighting game
+// move is only the middle part — the engine's startup/active/recovery already
+// own the entry and exit. Playing the whole take inside the engine's frame
+// budget is what makes retimed mocap read as a twitch, so attacks are trimmed
+// to the window where the strike actually happens.
+const MOCAP = {
+    idle:    { clip: 'Fighting Idle' },
+    walk:    { clip: 'Long Step Forward', rate: 1.15 },
+    crouch:  { clip: 'esquiva 1', loop: true, rate: 0.6 },
+    block:   { clip: 'Boxing' },
+    light:   { clip: 'Jab Cross', loop: false, trim: [0.10, 0.55] },
+    heavy:   { clip: 'Cross Punch', loop: false, trim: [0.12, 0.62] },
+    low:     { clip: 'rasteira 1', loop: false, trim: [0.15, 0.70] },
+    special: { clip: 'Mma Kick', loop: false, trim: [0.10, 0.65] },
+    hurt:    { clip: 'Hit Reaction', loop: false, fade: 0.05, trim: [0.05, 0.50] },
+    ko:      { clip: 'Knocked Out', loop: false, fade: 0.04 },
+    win:     { clip: 'Victory', loop: false },
+};
+
+// Fingers are excluded from the bake (see tools/retarget.html). A curled fist,
+// set once at attach time, is all a fighter ever needs — and it is what stops
+// the hands reading as open-palmed slaps.
+const FIST = {
+    [B.LeftIndexProximal]: [0, 0, -1.1], [B.LeftIndexIntermediate]: [0, 0, -1.3],
+    [B.LeftMiddleProximal]: [0, 0, -1.1], [B.LeftMiddleIntermediate]: [0, 0, -1.35],
+    [B.LeftRingProximal]: [0, 0, -1.1], [B.LeftRingIntermediate]: [0, 0, -1.3],
+    [B.LeftLittleProximal]: [0, 0, -1.05], [B.LeftLittleIntermediate]: [0, 0, -1.2],
+    [B.LeftThumbProximal]: [0, 0, -0.35], [B.LeftThumbDistal]: [0, 0, -0.4],
+    [B.RightIndexProximal]: [0, 0, 1.1], [B.RightIndexIntermediate]: [0, 0, 1.3],
+    [B.RightMiddleProximal]: [0, 0, 1.1], [B.RightMiddleIntermediate]: [0, 0, 1.35],
+    [B.RightRingProximal]: [0, 0, 1.1], [B.RightRingIntermediate]: [0, 0, 1.3],
+    [B.RightLittleProximal]: [0, 0, 1.05], [B.RightLittleIntermediate]: [0, 0, 1.2],
+    [B.RightThumbProximal]: [0, 0, 0.35], [B.RightThumbDistal]: [0, 0, 0.4],
+};
+
 // A CLIP is { loop, dur (s), keys:[{t:0..1, pose}] }. One-shots end on the last
 // key and the state machine returns to idle; loops wrap.
 const CLIPS = {
@@ -666,8 +722,33 @@ export class Fighter3D {
         if (this.vrm.lookAt) this.vrm.lookAt.target = obj || null;
     }
 
+    /**
+     * Attach a baked mocap bundle. From this point the hand-authored poses are
+     * dead weight kept only as the fallback for a build with no bundle.
+     * `variant` lets one fighter's jab be a different take from another's —
+     * per-fighter identity for zero extra bytes, since the clips are shared.
+     */
+    attachClips(bundle, variant = null) {
+        this.clips = new ClipPlayer(this.vrm, bundle);
+        this._mocap = variant ? { ...MOCAP, ...variant } : MOCAP;
+        // Fists. Fingers are not in the bundle (they are 58% of the payload and
+        // a fighter never opens their hands), so they are posed once, here.
+        for (const [bone, rot] of Object.entries(FIST)) {
+            const n = this.vrm.humanoid?.getNormalizedBoneNode(bone);
+            if (n) n.rotation.set(rot[0], rot[1], rot[2]);
+        }
+        this.play('idle', { restart: true });
+    }
+
     /** Switch to a named clip. One-shots restart on request; loops don't re-trigger. */
     play(name, { restart = false } = {}) {
+        if (this.clips) {
+            const m = this._mocap[name];
+            if (!m) return;
+            this.clips.play(m.clip, { loop: m.loop !== false, fade: m.fade ?? 0.12, rate: m.rate ?? 1, restart });
+            this._name = name;
+            return;
+        }
         if (!CLIPS[name]) return;
         if (name === this._name && !restart) return;
         // Freeze whatever is currently applied as the crossfade source.
@@ -687,6 +768,20 @@ export class Fighter3D {
      * @param {number} u 0..1 through the clip
      */
     scrub(name, u) {
+        if (this.clips) {
+            const m = this._mocap[name];
+            if (!m) return;
+            // The engine's frame data drives clip time directly. `trim` maps the
+            // move onto the USEFUL part of a mocap take — a Mixamo punch spends
+            // its first third settling into stance and its last third returning,
+            // and playing all of that inside 20 engine frames is why the naive
+            // version looked like a twitch.
+            const a = m.trim ? m.trim[0] : 0, b = m.trim ? m.trim[1] : 1;
+            this.clips.scrub(m.clip, a + (b - a) * THREE.MathUtils.clamp(u, 0, 1));
+            this._name = name;
+            this._scrubbed = true;
+            return;
+        }
         if (!CLIPS[name]) return;
         if (name !== this._name) {
             for (const b of BONES) this._from[b] = this._applied[b].slice();
@@ -718,6 +813,19 @@ export class Fighter3D {
     }
 
     update(dt) {
+        // MOCAP PATH. When the baked bundle is attached it owns every bone, and
+        // the hand-authored pose system below is not run at all. Mixing them per
+        // frame was the obvious design and the wrong one: both write the same
+        // normalised bones, so the loser's crossfade source goes stale and every
+        // transition between the two systems pops.
+        if (this.clips) {
+            if (this._scrubbed) this._scrubbed = false;
+            else this.clips.update(dt);
+            this._face(dt);
+            this.vrm.update(dt);
+            return;
+        }
+
         // A scrubbed frame already set _t from engine frame data — advancing it
         // again here would double-speed the attack.
         if (this._scrubbed) this._scrubbed = false;

@@ -1,7 +1,11 @@
 {
- "build": "yw-202608131651-5f27dc",
- "created": "2026-08-13T16:51:09.198Z",
+ "build": "yw-202608132305-6421bf",
+ "created": "2026-08-13T23:05:11.355Z",
  "files": {
+  "assets/anim/clips.ywa": {
+   "sha256": "70b9f8cfa43572210eafc785ec4a9abffa6f9b9bcf1ee7b467218d41ce072167",
+   "bytes": 748384
+  },
   "assets/crests/ameonna.webp": {
    "sha256": "0ce90c85bfe8bc05a86b8ce931cc4ce1bf6ca9500c575b1fb7ed68447bc9abeb",
    "bytes": 12032
@@ -287,7 +291,7 @@
    "bytes": 3214
   },
   "index.html": {
-   "sha256": "b6d198019367a0a0113ddfa6ad4bf26bad1bd3380ff3d66628405804188a2194",
+   "sha256": "dda5149d6dced84d7bd60186d3cd24c38d34331d7b1690adb4870ae81fe5d51a",
    "bytes": 5552
   },
   "src/CombatEngine.js": {
@@ -301,6 +305,10 @@
   "src/accessories.js": {
    "sha256": "a3c4ede1c7c4bc67d22f968665b39883aac0ee848cd21eb66dc4f0603e9da8f5",
    "bytes": 11232
+  },
+  "src/anim.js": {
+   "sha256": "02f4a8c0d4e9d12750f6cd35469c73294aa9e2c82687c49661b3e6c645c56a12",
+   "bytes": 6725
   },
   "src/celShader.js": {
    "sha256": "72ac73399cd185ee0f5abd566de258f40df4e75eaad99ffb4eca3d1672e99b11",
@@ -319,8 +327,8 @@
    "bytes": 10976
   },
   "src/fighter3d.js": {
-   "sha256": "404fe6504d52d9c6e486916045a918381f8ce0fe2913ea34aa4f78ee9cb1b50b",
-   "bytes": 43113
+   "sha256": "13eb5ff3b3b74e06cd9601cd204c7c28cd3bc5e6777e6a54868513ff0d855efb",
+   "bytes": 48696
   },
   "src/hitsparks.js": {
    "sha256": "51984a419072eaee82c7ed9c703505cce27db55b737aa1f755e2c6c95dafa5c3",
@@ -343,8 +351,8 @@
    "bytes": 12737
   },
   "src/main.js": {
-   "sha256": "175fffc458d21eff154b10a604d8e839e8bc5bd361d4ad15d7a34dd437de2b90",
-   "bytes": 70915
+   "sha256": "dc1d0ff0f811974babe848817f7d7dd87065877b58da0978401683afb6a8faa3",
+   "bytes": 71118
   },
   "src/motionfx.js": {
    "sha256": "153d3f0a0c61931f239d9d2be6e6b55a7c5f57e1a6d26b4e9b221218335bc534",
@@ -379,7 +387,7 @@
    "bytes": 6028
   },
   "styles.css": {
-   "sha256": "cffde68faf168e2b6f0fd1f1520420a1181cc90c3d49eca8849ee27129ed4fe6",
+   "sha256": "046f331d55d609d5787055365779023c14d736e1926e07554e7393086d3e2561",
    "bytes": 17806
   },
   "vendor/addons/loaders/GLTFLoader.js": {

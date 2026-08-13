@@ -33,7 +33,7 @@ import { createTimeCtl, createKOCam } from './motionfx.js';
 import { createIntroDirector } from './introdirector.js';
 import { introLines } from './intro-lines.js';
 import { createLadder } from './ladder.js';
-import { Fighter3D, loadVRM, prefetchVRM, driveFromEngine, discoverModels, modelConfig, dressFighter } from './fighter3d.js';
+import { Fighter3D, loadVRM, prefetchVRM, driveFromEngine, discoverModels, modelConfig, dressFighter, loadMocap } from './fighter3d.js';
 import { HitSparks } from './hitsparks.js';
 
 const FIXED_DT = 1 / 60;
@@ -277,14 +277,17 @@ function build3DFighter(def) {
     // when they actually have their own model would recolour and re-proportion
     // authored art. It is one memoised round of HEAD requests, already warm from
     // the select screen.
-    discoverModels(ROSTER).then((models) => {
+    Promise.all([discoverModels(ROSTER), loadMocap()]).then(([models, mocap]) => {
         const cfg = modelConfig(models, def.key);
         return loadVRM(cfg.url).then((vrm) => {
             // Dress BEFORE the first compile, so the shader programs are built
             // once with their final colours.
             dressFighter(vrm, def.key, { rim: def.rimColor, height: FIGHTER_HEIGHT, cfg });
             g.add(vrm.scene);
-            g.userData.f3d = new Fighter3D(vrm);
+            const f3d = new Fighter3D(vrm);
+            // Real motion if the bundle is there; hand-authored poses if not.
+            if (mocap) f3d.attachClips(mocap);
+            g.userData.f3d = f3d;
             compileSubtree(g);
             linkGaze();
         });
@@ -1458,4 +1461,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608131651-5f27dc
+// yw-202608132305-6421bf

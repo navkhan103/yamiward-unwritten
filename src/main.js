@@ -33,7 +33,7 @@ import { createTimeCtl, createKOCam } from './motionfx.js';
 import { createIntroDirector } from './introdirector.js';
 import { introLines } from './intro-lines.js';
 import { createLadder } from './ladder.js';
-import { Fighter3D, loadVRM, prefetchVRM, driveFromEngine, discoverModels, modelConfig, dressFighter, loadMocap } from './fighter3d.js';
+import { Fighter3D, loadVRM, prefetchVRM, driveFromEngine, discoverModels, modelConfig, dressFighter, loadMocap, FIGHTER_MOTION } from './fighter3d.js';
 import { HitSparks } from './hitsparks.js';
 
 const FIXED_DT = 1 / 60;
@@ -286,7 +286,9 @@ function build3DFighter(def) {
             g.add(vrm.scene);
             const f3d = new Fighter3D(vrm);
             // Real motion if the bundle is there; hand-authored poses if not.
-            if (mocap) f3d.attachClips(mocap);
+            // The per-fighter cast is what stops eight characters sharing one
+            // performance — same bundle, different stance and signature moves.
+            if (mocap) f3d.attachClips(mocap, FIGHTER_MOTION[def.key]);
             g.userData.f3d = f3d;
             compileSubtree(g);
             linkGaze();
@@ -1461,4 +1463,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608132305-6421bf
+// yw-202608132354-3e0542

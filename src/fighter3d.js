@@ -144,12 +144,30 @@ function darken(hex, f) {
 // cast at the same time — hue stays the fighter's, brightness stops being an
 // accident of which hex someone typed. Applied ONLY to that slot: everything
 // else on this body has a light texture and behaves normally.
-const CLOTH2_TARGET = 2.0;
+// BOTH cloth slots ship dark textures, and originally only the bodysuit was
+// gained. That produced the exact thing the fighters were accused of — "a black
+// hoodie and coloured jeans": the JACKET, which is the identity garment and the
+// first thing the eye lands on, stayed black while the legs were lifted so hard
+// they clipped to a pale mottle.
+//
+// Corrected hierarchy, judged against renders at four settings:
+//   jacket LOUD  — it carries the clan colour and must read instantly
+//   bodysuit QUIET — supporting, and above ~1.2 the brighter parts of its
+//                    texture clip past white and go chalky
+const CLOTH_GAIN = { cloth1: 1.70, cloth2: 1.05 };
 
-function bodysuitTint(hex) {
+/**
+ * Scale a tint so its brightest channel hits `target`.
+ *
+ * Needed because a material tint MULTIPLIES the model's texture, and these
+ * textures are dark — so an authored colour can only ever come out darker than
+ * authored. Normalising to a target also equalises the cast: hue stays the
+ * fighter's, brightness stops being an accident of which hex someone typed.
+ */
+function clothTint(hex, target) {
     const c = new THREE.Color(hex);
     const peak = Math.max(c.r, c.g, c.b) || 1;
-    return c.multiplyScalar(CLOTH2_TARGET / peak);
+    return c.multiplyScalar(target / peak);
 }
 
 /**
@@ -240,16 +258,16 @@ export function applyFighterLook(vrm, key, rim) {
 
     eachMaterial(vrm, (m) => {
         const n = m.name;
-        let tint = null, bodysuit = false;
+        let tint = null, gain = 0;
         if (/_SKIN/.test(n)) tint = p.skin;
         else if (/_HAIR/.test(n)) tint = p.hair;
-        else if (/Tops_01/.test(n)) tint = p.cloth1;
-        else if (/Tops_02|Onepiece/.test(n)) { tint = p.cloth2; bodysuit = true; }
+        else if (/Tops_01/.test(n)) { tint = p.cloth1; gain = CLOTH_GAIN.cloth1; }
+        else if (/Tops_02|Onepiece/.test(n)) { tint = p.cloth2; gain = CLOTH_GAIN.cloth2; }
         else if (/Shoes/.test(n)) tint = p.shoes;
         else if (/EyeIris/.test(n)) tint = p.eye;
         if (tint === null) return;   // face lines, eye whites, highlights: leave alone
 
-        const lit = bodysuit ? bodysuitTint(tint) : new THREE.Color(tint);
+        const lit = gain ? clothTint(tint, gain) : new THREE.Color(tint);
         if (m.color) m.color.copy(lit);
         // Shade tone must follow the LIT tone (gain included) or the dark side
         // drops straight back to the black we just climbed out of.
@@ -612,6 +630,77 @@ const MOCAP = {
     win:     { clip: 'Victory', loop: false },
 };
 
+/**
+ * PER-FIGHTER MOTION.
+ *
+ * One shared clip bundle, eight different fighters — each entry overrides only
+ * the states where that character should move differently, and inherits MOCAP
+ * for the rest. This costs ZERO extra bytes: every fighter is already loading
+ * all 51 clips, so casting Mayoi's kicks as capoeira and Tetsuki's grab as a
+ * real takedown is free identity.
+ *
+ * Casting follows the canon archetype, not taste: the oni grappler gets the
+ * heaviest stance and an actual takedown, the two capoeira-coded tricksters get
+ * the ginga and its kicks, the rushdown characters get the shortest punches in
+ * the library.
+ */
+export const FIGHTER_MOTION = {
+    // ONI grappler — heaviest thing in the ward. Boxing stance, and the only
+    // fighter with a genuine throw: the takedown pair was captured attacker and
+    // victim against each other, so his grab lands on a body instead of air.
+    tetsuki: {
+        idle:    { clip: 'Boxing' },
+        heavy:   { clip: 'Double Leg Takedown - Attacker', loop: false, trim: [0.06, 0.42] },
+        low:     { clip: 'rasteira 1', loop: false, trim: [0.15, 0.70] },
+        special: { clip: 'Cross Punch', loop: false, trim: [0.12, 0.62] },
+    },
+    // YUKIONNA zoner — still, upright, takes space without mass.
+    yukiwari: {
+        idle:    { clip: 'Mma Idle' },
+        light:   { clip: 'Jab Cross', loop: false, trim: [0.10, 0.52] },
+        special: { clip: 'Side Kick', loop: false, trim: [0.12, 0.60] },
+    },
+    // RAIJU rushdown — the fastest hands in the cast get the shortest punch.
+    raiga: {
+        light:   { clip: 'Punching', loop: false, trim: [0.05, 0.55] },
+        special: { clip: 'Spin Flip Kick', loop: false, trim: [0.10, 0.68] },
+    },
+    // KITSUNE trickster — capoeira, entirely. The ginga IS a feint: a rocking
+    // base step that never commits, which is exactly how Mayoi fights.
+    mayoi: {
+        idle:    { clip: 'ginga forward' },
+        walk:    { clip: 'ginga sideways 1', rate: 1.2 },
+        light:   { clip: 'martelo 2', loop: false, trim: [0.15, 0.62] },
+        low:     { clip: 'rasteira 1', loop: false, trim: [0.15, 0.72] },
+        special: { clip: 'meia lua de compasso', loop: false, trim: [0.10, 0.70] },
+        crouch:  { clip: 'esquiva 1', rate: 0.6 },
+    },
+    // AMEONNA trickster — drifting, evasive, never quite where you struck.
+    shigure: {
+        idle:    { clip: 'ginga sideways 1', rate: 0.85 },
+        light:   { clip: 'Jab Cross', loop: false, trim: [0.10, 0.52] },
+        special: { clip: 'meia lua de compasso back', loop: false, trim: [0.12, 0.68] },
+    },
+    // TSUKIUSAGI rushdown — smallest, tightest recovery in the cast.
+    tsukimi: {
+        idle:    { clip: 'Boxing (1)' },
+        light:   { clip: 'Punching', loop: false, trim: [0.05, 0.52] },
+        heavy:   { clip: 'Hook Punch', loop: false, trim: [0.12, 0.60] },
+    },
+    // TENGU zoner — longest reach, and the long spinning kick to match.
+    kazakiri: {
+        idle:    { clip: 'Mma Idle', rate: 0.9 },
+        heavy:   { clip: 'Roundhouse Kick', loop: false, trim: [0.12, 0.66] },
+        special: { clip: 'meia lua de compasso', loop: false, trim: [0.08, 0.72] },
+    },
+    // RYU rushdown — broad, committed, punishable every time he is wrong.
+    yumihari: {
+        idle:    { clip: 'Boxing (2)' },
+        heavy:   { clip: 'Mma Kick', loop: false, trim: [0.10, 0.65] },
+        special: { clip: 'Flip Kick', loop: false, trim: [0.10, 0.70] },
+    },
+};
+
 // Fingers are excluded from the bake (see tools/retarget.html). A curled fist,
 // set once at attach time, is all a fighter ever needs — and it is what stops
 // the hands reading as open-palmed slaps.
@@ -767,17 +856,22 @@ export class Fighter3D {
      * @param {string} name
      * @param {number} u 0..1 through the clip
      */
-    scrub(name, u) {
+    scrub(name, u, maxFade = 0.08) {
         if (this.clips) {
             const m = this._mocap[name];
             if (!m) return;
+            // The crossfade INTO an attack must finish inside its startup. A
+            // fixed 80ms fade is longer than a 4-frame (67ms) startup, so the
+            // fist was still blending toward the clip on the frame the hitbox
+            // went live — the visible arm lagged the hit that registered.
+            this.clips._fadeDur = Math.min(this.clips._fadeDur || 0, maxFade);
             // The engine's frame data drives clip time directly. `trim` maps the
             // move onto the USEFUL part of a mocap take — a Mixamo punch spends
             // its first third settling into stance and its last third returning,
             // and playing all of that inside 20 engine frames is why the naive
             // version looked like a twitch.
             const a = m.trim ? m.trim[0] : 0, b = m.trim ? m.trim[1] : 1;
-            this.clips.scrub(m.clip, a + (b - a) * THREE.MathUtils.clamp(u, 0, 1));
+            this.clips.scrub(m.clip, a + (b - a) * THREE.MathUtils.clamp(u, 0, 1), { fade: maxFade });
             this._name = name;
             this._scrubbed = true;
             return;
@@ -946,7 +1040,11 @@ export function driveFromEngine(f3d, f, State) {
         // Height is the backstop: anything that must be blocked low should read
         // as a leg attack even if a character names its slots unusually.
         if (m.height === 'LOW') clip = 'low';
-        f3d.scrub(clip, u);
+        // Cap the entry fade at 70% of this move's own startup, so the blend is
+        // always finished before the hitbox goes live. A 4-frame jab gets 47ms;
+        // a 14-frame command grab gets the full 80.
+        const startupSec = (m.startupFrames ?? 6) / 60;
+        f3d.scrub(clip, u, Math.min(0.08, startupSec * 0.7));
         return;
     }
 

@@ -973,6 +973,16 @@ function handleEvents() {
                 // negation of the vector computed above (which points back at
                 // the attacker for spark placement).
                 camRig.addShake(ev.counter ? 0.85 : 0.5, -dx / dist, -dz / dist);
+                // Punch scales with what actually landed, so a 12-damage jab
+                // and a 44-damage super do not get the same camera. Damage is
+                // the honest measure here — it is what the player felt.
+                const dmg = ev.move?.damage ?? 12;
+                camRig.punch(Math.min(1, 0.30 + dmg / 55) * (ev.counter ? 1.15 : 1));
+                // The super is the one moment per round that earns a camera
+                // move of its own: drop under them and look up while the
+                // hitstop holds. `isSuper` is authored on the move, so this
+                // stays right for any move added later.
+                if (ev.move?.isSuper) { camRig.hero(1.3); overlay.cinematic(1.5); }
                 const kind = ev.counter ? 'heavy' : 'light';
                 const tint = engine.fighters[attackerSlot].def.color;
                 hitSparks.burst(impactPoint, kind, tint);
@@ -1008,13 +1018,13 @@ function handleEvents() {
                 else if (ev.kind === 'charge' && ev.value >= 10) overlay.announce('MAX CHARGE', '雷', 0.8);
                 break;
             }
-            case 'wallsplat': camRig.addShake(1.0); overlay.announce('WALL', '壁', 0.8); timeCtl.kick('wallsplat'); break;
+            case 'wallsplat': camRig.addShake(1.0); camRig.punch(0.9); overlay.announce('WALL', '壁', 0.8); timeCtl.kick('wallsplat'); break;
             case 'crush': overlay.announce(ev.kind === 'high' ? 'DUCKED' : 'HOPPED', '', 0.6); break;
             case 'whiff': overlay.announce('SIDESTEP', '回避', 0.7); break;
             case 'round': overlay.announce(`ROUND ${ev.round}`, '闘'); camRig.snap(); break;
             case 'fight': overlay.announce('FIGHT', '始め'); break;
             case 'ko': {
-                overlay.announce('K.O.', '', 2.4); camRig.addShake(1);
+                overlay.announce('K.O.', '', 2.4); camRig.addShake(1); camRig.punch(1); camRig.hero(2.2); overlay.cinematic(2.6);
                 // Slow-mo + camera push toward the fallen fighter.
                 timeCtl.kick('ko');
                 const down = engine.fighters.findIndex((f) => f.health <= 0);
@@ -1437,4 +1447,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608131628-0fe2f2
+// yw-202608131640-06ee31

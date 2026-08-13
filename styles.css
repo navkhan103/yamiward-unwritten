@@ -345,6 +345,34 @@ html, body {
 
 #wipe.play { animation: wipeThrough 0.52s ease-in-out; }
 
+/* ===== cinematic letterbox =====
+   Bars slide in for the moments the camera also changes its mind — supers and
+   the KO. They do two jobs: they announce "this is a set piece", and they crop
+   the frame to the fighters, which is the cheapest way to make a wide arena
+   read as a chosen composition. Deliberately NOT used for normal play; a
+   permanent letterbox is a wallpaper, not a device. */
+#letterbox {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+#letterbox i {
+    position: absolute;
+    left: 0; right: 0;
+    height: 11%;
+    background: #000;
+    transform: translateY(-101%);
+    transition: transform 0.34s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+#letterbox i:first-child { top: 0; }
+#letterbox i:last-child { bottom: 0; transform: translateY(101%); }
+#letterbox.on i { transform: translateY(0); }
+
+@media (prefers-reduced-motion: reduce) {
+    #letterbox i { transition: none; }
+}
+
 @keyframes wipeThrough {
     0% { transform: scaleY(0); transform-origin: top; }
     45% { transform: scaleY(1); transform-origin: top; }
@@ -670,4 +698,4 @@ html, body {
     display: none;
 }
 
-/* yw-202608131628-0fe2f2 */
+/* yw-202608131640-06ee31 */

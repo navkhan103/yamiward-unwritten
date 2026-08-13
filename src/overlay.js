@@ -28,6 +28,7 @@ export class Overlay {
             story: $('#story'), storyName: $('#story-name'), storyText: $('#story-text'),
             storyPortrait: $('#story-portrait'), storyNext: $('#story-next'),
             wipe: $('#wipe'),
+            letterbox: $('#letterbox'),
             debug: $('#debug'),
         };
 
@@ -130,6 +131,24 @@ export class Overlay {
         void this.el.announce.offsetWidth;
         this.el.announce.classList.add('play');
         this._announceTimer = seconds;
+    }
+
+    /**
+     * Slide the letterbox in for `seconds`, then out.
+     *
+     * Re-calling EXTENDS the hold instead of restarting it — a super that lands
+     * during a KO must not slam the bars shut and re-open them, which reads as
+     * a glitch rather than a flourish.
+     */
+    cinematic(seconds = 1.3) {
+        const box = this.el.letterbox;
+        if (!box) return;
+        box.classList.add('on');
+        this._cineUntil = Math.max(this._cineUntil || 0, performance.now() + seconds * 1000);
+        clearTimeout(this._cineTimer);
+        this._cineTimer = setTimeout(() => {
+            if (performance.now() >= (this._cineUntil || 0) - 16) box.classList.remove('on');
+        }, Math.max(0, this._cineUntil - performance.now()));
     }
 
     /** Full-screen wipe between story beats and fights. */

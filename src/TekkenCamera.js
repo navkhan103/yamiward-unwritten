@@ -95,6 +95,42 @@ export class TekkenCamera {
         this._impDecay = opts.impulseDecay ?? 16.0;   // faster than jitter: a kick, not a wobble
         this._impAmp = opts.impulseAmplitude ?? 0.16;
 
+        // ------------------------------------------------------------------
+        // Cinematic layer
+        // ------------------------------------------------------------------
+        // Everything above frames the fight correctly. None of it makes the
+        // fight look like a MOVIE — that is what this layer is for. It rides on
+        // top of the framing as pure offsets, so the rig can never lose the
+        // fighters no matter what the drama is doing.
+
+        // Impact punch: a fast narrowing of FOV plus a shove toward the action.
+        // Attack is short enough to land inside hitstop; release is slow enough
+        // to feel like recoil rather than a snap back.
+        this._punch = 0;             // 0..1 envelope value
+        this._punchPhase = 0;        // seconds into the envelope
+        this._punchPeak = 0;         // strength of the current punch
+        this.punchAttack = opts.punchAttack ?? 0.09;
+        this.punchRelease = opts.punchRelease ?? 0.25;
+        this.punchFov = opts.punchFov ?? 8.0;      // degrees narrower at full strength
+        this.punchDolly = opts.punchDolly ?? 0.14; // metres toward the action
+
+        // Handheld. A camera bolted to a spline reads as CG; an operator never
+        // holds perfectly still. Two incommensurate sine pairs give smooth,
+        // non-repeating, allocation-free drift — deterministic, and presentation
+        // only, so it can never desync the engine.
+        this._hh = 0;
+        this.handheldAmp = opts.handheldAmplitude ?? 0.022;
+        this.handheldRate = opts.handheldRate ?? 1.0;
+
+        // Hero angle: drop under the fighters and look up. Supers only — used
+        // constantly it stops meaning anything.
+        this._hero = 0;              // 0..1 blend into the low angle
+        this._heroWant = 0;
+        this._heroHold = 0;          // seconds left before it releases
+        this.heroDrop = opts.heroDrop ?? 0.62;     // metres of camera height removed
+        this.heroPull = opts.heroPull ?? 0.55;     // metres closer
+        this.heroLift = opts.heroLift ?? 0.42;     // metres the look point rises
+
         // scratch — allocating vectors inside a 60Hz loop is how you get GC hitches
         this._t1 = new THREE.Vector3();
         this._t2 = new THREE.Vector3();
@@ -124,6 +160,27 @@ export class TekkenCamera {
             this._impMag = Math.min(1, this._impMag + amount);
         }
     }
+
+    /**
+     * Impact punch — call on a landed hit. `strength` roughly 0..1.
+     *
+     * Kept separate from addShake so the two can be tuned against each other:
+     * shake is noise (something hit me), punch is emphasis (THAT hit).
+     */
+    punch(strength = 1) {
+        const s = THREE.MathUtils.clamp(strength, 0, 1);
+        // Never cut a bigger punch short with a smaller one landing on top.
+        if (s >= this._punchPeak || this._punchPhase > this.punchAttack) {
+            this._punchPeak = Math.max(s, this._punchPeak * 0.4);
+            this._punchPhase = 0;
+        }
+    }
+
+    /**
+     * Hold a low hero angle for `seconds`. Supers and KOs only.
+     * Re-calling extends the hold rather than restarting the ramp.
+     */
+    hero(seconds = 1.2) { this._heroHold = Math.max(this._heroHold, seconds); }
 
     /** Jump straight to the ideal framing (round start, cutscene cut). */
     snap() { this._initialised = false; }
@@ -174,8 +231,19 @@ export class TekkenCamera {
             .addScaledVector(this._side, dist);
         want.y = this._mid.y + height;
 
+        // --- hero angle: fold into the DESIRED transform, not the final one, so
+        //     the rig's own smoothing eases in and out of it instead of the
+        //     camera teleporting under the fighters on the frame a super lands.
+        this._heroHold = Math.max(0, this._heroHold - dt);
+        this._heroWant = this._heroHold > 0 ? 1 : 0;
+        this._hero += (this._heroWant - this._hero) * (1 - Math.exp(-6.0 * dt));
+        if (this._hero > 0.001) {
+            want.y -= this.heroDrop * this._hero;
+            want.addScaledVector(this._side, -this.heroPull * this._hero);
+        }
+
         const wantLook = this._t1.copy(this._mid);
-        wantLook.y = this._mid.y + this.lookHeight;
+        wantLook.y = this._mid.y + this.lookHeight + this.heroLift * this._hero;
 
         if (!this._initialised) {
             this._pos.copy(want);
@@ -213,11 +281,46 @@ export class TekkenCamera {
             this._impMag *= Math.exp(-this._impDecay * dt);
         }
 
+        // --- impact punch envelope: fast in, slow out
+        if (this._punchPeak > 0.001) {
+            this._punchPhase += dt;
+            if (this._punchPhase < this.punchAttack) {
+                this._punch = this._punchPeak * (this._punchPhase / this.punchAttack);
+            } else {
+                const r = (this._punchPhase - this.punchAttack) / this.punchRelease;
+                if (r >= 1) { this._punch = 0; this._punchPeak = 0; }
+                else {
+                    // cubic ease-out: most of the recoil is spent early, which
+                    // is what makes it read as a hit rather than a zoom
+                    const k = 1 - r;
+                    this._punch = this._punchPeak * k * k * k;
+                }
+            }
+        }
+        // Dolly toward the fight along the view axis (never sideways — sideways
+        // rotates the framing and the fighters slide across the screen).
+        if (this._punch > 0.001) {
+            sx -= this._side.x * this.punchDolly * this._punch;
+            sz -= this._side.z * this.punchDolly * this._punch;
+        }
+
+        // --- handheld drift, always on, deliberately below conscious notice
+        this._hh += dt * this.handheldRate;
+        const hx = Math.sin(this._hh * 0.87) * 0.6 + Math.sin(this._hh * 2.13) * 0.4;
+        const hy = Math.sin(this._hh * 1.31 + 1.7) * 0.6 + Math.sin(this._hh * 3.07) * 0.4;
+        sx += hx * this.handheldAmp;
+        sy += hy * this.handheldAmp;
+
         this.camera.position.set(this._pos.x + sx, this._pos.y + sy, this._pos.z + sz);
         this.camera.lookAt(this._look);
 
-        if (this.useFovZoom && Math.abs(this.camera.fov - this._fov) > 0.01) {
-            this.camera.fov = this._fov;
+        // FOV: framing value, narrowed by the punch. The punch is applied at
+        // write time rather than folded into _fov so it cannot be eaten by the
+        // framing smoother — an 8-degree kick that takes 200ms to arrive is a
+        // zoom, not an impact.
+        const fovOut = this._fov - this.punchFov * this._punch;
+        if (this.useFovZoom && Math.abs(this.camera.fov - fovOut) > 0.01) {
+            this.camera.fov = fovOut;
             this.camera.updateProjectionMatrix();
         }
     }

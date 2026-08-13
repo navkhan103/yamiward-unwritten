@@ -1,6 +1,6 @@
 {
- "build": "yw-202608131628-0fe2f2",
- "created": "2026-08-13T16:29:02.313Z",
+ "build": "yw-202608131640-06ee31",
+ "created": "2026-08-13T16:40:39.408Z",
  "files": {
   "assets/crests/ameonna.webp": {
    "sha256": "0ce90c85bfe8bc05a86b8ce931cc4ce1bf6ca9500c575b1fb7ed68447bc9abeb",
@@ -287,16 +287,16 @@
    "bytes": 3214
   },
   "index.html": {
-   "sha256": "c4baee6f85c389990807253a8da17892a70ba7d429310d6ffccbad48c8ce6db3",
-   "bytes": 5417
+   "sha256": "9319806d8670bf85d9c0d27ab93ba37dacd80553c262d9e5655db60ec0277b87",
+   "bytes": 5552
   },
   "src/CombatEngine.js": {
    "sha256": "9f6fd1aeb43c3d3e213b262d392c50a238cf0345502ad984a46a6bf68d96fb38",
    "bytes": 38798
   },
   "src/TekkenCamera.js": {
-   "sha256": "288ec836c6078751ec4dbf0331c290d3757c12291990c532e7b19d91d185e4f2",
-   "bytes": 9555
+   "sha256": "265ff0edfd7c3dbff1747f4ed46b49d19b69a202854e96c5bdd5790097eb02ad",
+   "bytes": 14949
   },
   "src/accessories.js": {
    "sha256": "a3c4ede1c7c4bc67d22f968665b39883aac0ee848cd21eb66dc4f0603e9da8f5",
@@ -343,8 +343,8 @@
    "bytes": 12737
   },
   "src/main.js": {
-   "sha256": "5b88ec6a5d0a203abf23db0266898af94b45b8f875e2184c9932caa988125b35",
-   "bytes": 69374
+   "sha256": "6fc9d433504859c247dfd99767e87854c86ab27519d40d462364b2e9120cbf1c",
+   "bytes": 70190
   },
   "src/motionfx.js": {
    "sha256": "153d3f0a0c61931f239d9d2be6e6b55a7c5f57e1a6d26b4e9b221218335bc534",
@@ -359,8 +359,8 @@
    "bytes": 9854
   },
   "src/overlay.js": {
-   "sha256": "5cef51e17e2b575affaad304d942304a0f5443da020391277dcf60431be94139",
-   "bytes": 8871
+   "sha256": "653ec39de5b15e20edb10ec51f8c9fde6c2fbc4a4f866467847c6a62e777f450",
+   "bytes": 9662
   },
   "src/paperdoll.js": {
    "sha256": "b6fa257942d74c8190b96d3eabb152add4164b21ed14ef2bde7ca940e31493a2",
@@ -379,8 +379,8 @@
    "bytes": 6028
   },
   "styles.css": {
-   "sha256": "1b14242ef6c0dd8a16853440a42c1ffbcd78c346340aeead98497b15b9ab0ff9",
-   "bytes": 16862
+   "sha256": "828b3e742a851557b7eb5a1b3beafc44554019b2d4b8b3e5d3b432bb9daa2eee",
+   "bytes": 17806
   },
   "vendor/addons/loaders/GLTFLoader.js": {
    "sha256": "6f1719dcc6a179d30273dfb0de07a8c898a7981f7b08e600b446387f5967371f",

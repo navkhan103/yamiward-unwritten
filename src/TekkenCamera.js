@@ -85,6 +85,16 @@ export class TekkenCamera {
         this._shakeAmp = opts.shakeAmplitude ?? 0.09;
         this._shakeSeed = 1337;
 
+        // Directional kick. Random jitter alone says "something happened"; it
+        // does not say WHICH WAY. A right hook and a left hook shook the frame
+        // identically, so every hit read the same. This carries the world-space
+        // direction the blow travelled, and the camera lurches along it before
+        // the jitter takes over — the frame moves with the punch.
+        this._imp = new THREE.Vector3();
+        this._impMag = 0;
+        this._impDecay = opts.impulseDecay ?? 16.0;   // faster than jitter: a kick, not a wobble
+        this._impAmp = opts.impulseAmplitude ?? 0.16;
+
         // scratch — allocating vectors inside a 60Hz loop is how you get GC hitches
         this._t1 = new THREE.Vector3();
         this._t2 = new THREE.Vector3();
@@ -98,8 +108,22 @@ export class TekkenCamera {
      */
     setFighters(a, b) { this._a = a; this._b = b; this._initialised = false; }
 
-    /** Call on a landed hit. `amount` roughly 0..1. */
-    addShake(amount) { this._shake = Math.min(1, this._shake + amount); }
+    /**
+     * Call on a landed hit. `amount` roughly 0..1.
+     *
+     * `dirX`/`dirZ` are the world-space direction the blow travelled (attacker
+     * toward defender). Passing them makes the frame kick that way; omitting
+     * them falls back to pure jitter, which is right for things with no
+     * direction (a parry, a round-start thud).
+     */
+    addShake(amount, dirX = 0, dirZ = 0) {
+        this._shake = Math.min(1, this._shake + amount);
+        const len = Math.hypot(dirX, dirZ);
+        if (len > 1e-4) {
+            this._imp.set(dirX / len, 0, dirZ / len);
+            this._impMag = Math.min(1, this._impMag + amount);
+        }
+    }
 
     /** Jump straight to the ideal framing (round start, cutscene cut). */
     snap() { this._initialised = false; }
@@ -168,7 +192,7 @@ export class TekkenCamera {
         }
 
         // --- impact shake, applied as an offset so it never fights the framing
-        let sx = 0, sy = 0;
+        let sx = 0, sy = 0, sz = 0;
         if (this._shake > 0.001) {
             this._shakeSeed = (this._shakeSeed * 1103515245 + 12345) & 0x7fffffff;
             const r1 = ((this._shakeSeed >> 8) % 1000) / 500 - 1;
@@ -178,8 +202,18 @@ export class TekkenCamera {
             sx = r1 * amp; sy = r2 * amp;
             this._shake *= Math.exp(-this._shakeDecay * dt);
         }
+        // Directional kick rides on top, along the blow's own axis. The camera
+        // moves WITH the punch (not against it): the frame is dragged in the
+        // direction the force went, which is what sells the transfer of weight.
+        if (this._impMag > 0.001) {
+            const k = this._impMag * this._impMag * this._impAmp;
+            sx += this._imp.x * k;
+            sz += this._imp.z * k;
+            sy -= k * 0.35;   // a touch of drop — impacts push the frame down
+            this._impMag *= Math.exp(-this._impDecay * dt);
+        }
 
-        this.camera.position.set(this._pos.x + sx, this._pos.y + sy, this._pos.z);
+        this.camera.position.set(this._pos.x + sx, this._pos.y + sy, this._pos.z + sz);
         this.camera.lookAt(this._look);
 
         if (this.useFovZoom && Math.abs(this.camera.fov - this._fov) > 0.01) {

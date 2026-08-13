@@ -99,6 +99,42 @@ key.shadow.bias = -0.0006;
 key.shadow.normalBias = 0.02;
 scene.add(key);
 
+// The key light's shadow box FOLLOWS the fight instead of covering the arena.
+//
+// A directional light's shadow map is spread evenly over its ortho box, so a
+// fixed ±10 box spends its 1024 texels on 20×20 units of mostly-empty arena
+// while the two fighters occupy about 3 of them. That is ~51 texels per unit,
+// which is why nothing had a readable contact shadow and everyone looked like
+// they were hovering. Re-fitting the box to the pair each frame costs one
+// matrix update and buys 3–4× the effective resolution exactly where the eye
+// is looking. The light DIRECTION never changes — only the box — so shadows
+// keep falling the same way and the stage lighting reads identically.
+const KEY_DIR = new THREE.Vector3(5, 9, 4).normalize();
+key.target = new THREE.Object3D();
+scene.add(key.target);
+
+const _shadowMid = new THREE.Vector3();
+function fitShadowToFighters() {
+    if (!meshes[0] || !meshes[1]) return;
+    const a = meshes[0].position, b = meshes[1].position;
+    _shadowMid.set((a.x + b.x) * 0.5, Math.max(0, Math.min(a.y, b.y)), (a.z + b.z) * 0.5);
+    // Half-extent has to hold both fighters plus their airborne arcs. Below
+    // ~2.6 a wall-splat clips its own shadow; above ~6 we are back to wasting
+    // texels on the floor.
+    const spread = Math.hypot(b.x - a.x, b.z - a.z) * 0.5;
+    const half = THREE.MathUtils.clamp(spread + 2.0, 2.6, 6.0);
+    const c = key.shadow.camera;
+    if (c.left !== -half) {
+        c.left = -half; c.right = half; c.top = half; c.bottom = -half;
+        c.updateProjectionMatrix();
+    }
+    key.target.position.copy(_shadowMid);
+    key.target.updateMatrixWorld();
+    // Keep the light the same distance along the same direction, so the shadow
+    // ANGLE is invariant — only the covered area moves.
+    key.position.copy(_shadowMid).addScaledVector(KEY_DIR, 11);
+}
+
 const rim = new THREE.DirectionalLight(0x8a5cff, 1.1);
 rim.position.set(-6, 4, -5);
 scene.add(rim);
@@ -216,6 +252,21 @@ function ensure3DLighting() {
     scene.add(new THREE.AmbientLight(0xffffff, 0.24));
 }
 
+/**
+ * Make the two fighters watch each other.
+ *
+ * Called after each model resolves, because they land in either order and only
+ * the second one can complete the pair. Idempotent — re-pointing at the same
+ * head node is free.
+ */
+function linkGaze() {
+    const a = meshes[0]?.userData?.f3d;
+    const b = meshes[1]?.userData?.f3d;
+    if (!a || !b) return;
+    a.lookAtTarget(b.headNode);
+    b.lookAtTarget(a.headNode);
+}
+
 function build3DFighter(def) {
     ensure3DLighting();
     const g = new THREE.Group();
@@ -235,6 +286,7 @@ function build3DFighter(def) {
             g.add(vrm.scene);
             g.userData.f3d = new Fighter3D(vrm);
             compileSubtree(g);
+            linkGaze();
         });
     }).catch((err) => console.warn('[vrm3d] load failed for', def.key, err));
     return g;
@@ -896,7 +948,6 @@ function handleEvents() {
     for (const ev of engine.drainEvents()) {
         switch (ev.type) {
             case 'hit': {
-                camRig.addShake(ev.counter ? 0.85 : 0.5);
                 meshes[ev.slot].userData.flash = 1;
                 // No timeCtl kick on counters — they land several times a
                 // round and the repeated dips read as stutter (playtest
@@ -918,6 +969,10 @@ function handleEvents() {
                     y: 1.2,
                     z: defPose.z + (dz / dist) * 0.3,
                 };
+                // Shake ALONG the blow — attacker toward defender, i.e. the
+                // negation of the vector computed above (which points back at
+                // the attacker for spark placement).
+                camRig.addShake(ev.counter ? 0.85 : 0.5, -dx / dist, -dz / dist);
                 const kind = ev.counter ? 'heavy' : 'light';
                 const tint = engine.fighters[attackerSlot].def.color;
                 hitSparks.burst(impactPoint, kind, tint);
@@ -1177,6 +1232,7 @@ function frame(now) {
     camRig.update(dt);
     koCam.apply(camera, dt);
     intro.apply(camera, dt);   // overrides the rig while the showdown runs
+    fitShadowToFighters();
 
     // Advance hit sparks with the engine frame counter (not dt) — the shader
     // computes spark age in engine frames so hitstop/slow-mo are honoured.
@@ -1381,4 +1437,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608131559-d1b8e1
+// yw-202608131628-0fe2f2

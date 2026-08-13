@@ -645,6 +645,27 @@ export class Fighter3D {
     setYaw(y) { this.root.rotation.y = y; }
     setScale(s) { this.root.scale.setScalar(s); }
 
+    /** The head bone in world space — what an opponent's eyes should track. */
+    get headNode() {
+        return this.vrm.humanoid?.getRawBoneNode?.(B.Head) || null;
+    }
+
+    /**
+     * Point this fighter's eyes at something.
+     *
+     * VRMLookAt was already loaded and already being ticked by `vrm.update(dt)`
+     * — it just never had a target, so both fighters stared straight ahead for
+     * every frame of every match. Two people in a fight watch each other; eyes
+     * that don't track are the single loudest "this is a puppet" signal a 3D
+     * character can send, and fixing it costs one assignment.
+     *
+     * The applier clamps to the VRM's authored look range, so an opponent who
+     * ends up behind or underneath cannot roll the eyes into the skull.
+     */
+    lookAtTarget(obj) {
+        if (this.vrm.lookAt) this.vrm.lookAt.target = obj || null;
+    }
+
     /** Switch to a named clip. One-shots restart on request; loops don't re-trigger. */
     play(name, { restart = false } = {}) {
         if (!CLIPS[name]) return;

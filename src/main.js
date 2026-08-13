@@ -33,8 +33,7 @@ import { createTimeCtl, createKOCam } from './motionfx.js';
 import { createIntroDirector } from './introdirector.js';
 import { introLines } from './intro-lines.js';
 import { createLadder } from './ladder.js';
-import { Fighter3D, loadVRM, prefetchVRM, driveFromEngine, applyFighterLook, applyFighterBuild, applyOutline, resolveModelUrl } from './fighter3d.js';
-import { attachAccessories } from './accessories.js';
+import { Fighter3D, loadVRM, prefetchVRM, driveFromEngine, discoverModels, modelConfig, dressFighter } from './fighter3d.js';
 import { HitSparks } from './hitsparks.js';
 
 const FIXED_DT = 1 / 60;
@@ -175,14 +174,10 @@ async function setStage(id) {
  * compile) keeps working; the model is added into it when the async load
  * resolves. Until then the group is empty and the match simply runs unseen.
  *
- * Until per-fighter models exist, everyone loads the same stand-in — the point
- * of this path is to prove combat-driven 3D animation, not the roster art.
+ * A fighter with assets/models/<key>.vrm gets it; everyone else wears the shared
+ * stand-in in their clan palette. Nothing here needs editing to upgrade a
+ * fighter — the file's existence is the switch (see discoverModels).
  */
-// Roster keys that have a REAL per-fighter model exported. Anyone not listed
-// wears the shared stand-in in their clan palette. Upgrading a fighter is:
-// drop assets/models/<key>.vrm in, add the key here.
-const MODELS_AVAILABLE = new Set();
-
 // `?vrm3d=1` swaps in real 3D (VRM) fighters. Opt-in while the 3D roster is one
 // model deep — every fighter currently loads the same stand-in in their clan
 // palette. Module-scope because both the select screen (to prefetch) and
@@ -225,23 +220,20 @@ function build3DFighter(def) {
     // Stubs keep any stray reader (syncMeshes' placeholder branch, teardown)
     // harmless before the model lands.
     g.userData = { f3d: null, flash: 0, mats: [], mat: null, def };
-    loadVRM(resolveModelUrl(def.key, MODELS_AVAILABLE)).then((vrm) => {
-        // Retint to the fighter's clan palette BEFORE the first compile, so the
-        // shader programs are built once with their final colours.
-        applyFighterLook(vrm, def.key, def.rimColor);
-        applyOutline(vrm);
-        // Normalise to a common height FIRST, from the untouched mesh — then
-        // apply the build. Doing it the other way round makes the bounding box
-        // include the build's own scaling, and the normalisation cancels exactly
-        // the height differences the build exists to create.
-        const box = new THREE.Box3().setFromObject(vrm.scene);
-        const h = (box.max.y - box.min.y) || 1.5;
-        vrm.scene.scale.setScalar(FIGHTER_HEIGHT / h);
-        applyFighterBuild(vrm, def.key);
-        attachAccessories(vrm, def.key, def.rimColor);
-        g.add(vrm.scene);
-        g.userData.f3d = new Fighter3D(vrm);
-        compileSubtree(g);
+    // Discovery is awaited, not raced: dressing a fighter by the stand-in rules
+    // when they actually have their own model would recolour and re-proportion
+    // authored art. It is one memoised round of HEAD requests, already warm from
+    // the select screen.
+    discoverModels(ROSTER).then((models) => {
+        const cfg = modelConfig(models, def.key);
+        return loadVRM(cfg.url).then((vrm) => {
+            // Dress BEFORE the first compile, so the shader programs are built
+            // once with their final colours.
+            dressFighter(vrm, def.key, { rim: def.rimColor, height: FIGHTER_HEIGHT, cfg });
+            g.add(vrm.scene);
+            g.userData.f3d = new Fighter3D(vrm);
+            compileSubtree(g);
+        });
     }).catch((err) => console.warn('[vrm3d] load failed for', def.key, err));
     return g;
 }
@@ -686,7 +678,11 @@ function showSelect() {
     // Start pulling the 3D model down NOW. Choosing a fighter takes a few
     // seconds of human time; spending it on the download means the match starts
     // against a warm cache instead of a cold 16MB fetch.
-    if (USE_3D) for (const k of ROSTER) prefetchVRM(resolveModelUrl(k, MODELS_AVAILABLE));
+    // Fighters sharing the stand-in resolve to the same URL, and prefetchVRM
+    // memoises per URL, so this is one download for everyone still on base.vrm.
+    if (USE_3D) discoverModels(ROSTER).then((models) => {
+        for (const k of ROSTER) prefetchVRM(modelConfig(models, k).url);
+    });
 
     // Resident tie-in: highlight the player's bloodline champion if theirs.
     let residentPick = null;
@@ -1330,23 +1326,20 @@ async function startRosterPreview() {
     note.style.cssText = 'position:fixed;left:0;right:0;top:14px;text-align:center;font:600 15px system-ui;color:#9be8e0;text-shadow:0 1px 4px #000;z-index:50;pointer-events:none';
     note.textContent = 'loading roster …';
     document.body.appendChild(note);
-    scene.add(new THREE.DirectionalLight(0xfff2e6, 1.4).translateY(0));
-    const kl = new THREE.DirectionalLight(0xfff2e6, 1.4); kl.position.set(2, 5, 6); scene.add(kl);
-    const fl = new THREE.DirectionalLight(0x9bd0ff, 0.7); fl.position.set(-4, 2, 3); scene.add(fl);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+    // The SAME rig a match uses. This preview exists to judge whether eight
+    // fighters read apart, and judging them under brighter, flatter light than
+    // the game ships is a QA lie — the line-up would pass and the match would
+    // still be eight silhouettes.
+    ensure3DLighting();
     const gap = 1.15, x0 = -((ROSTER.length - 1) * gap) / 2;
     rosterPreview = [];
+    const models = await discoverModels(ROSTER);
     for (let i = 0; i < ROSTER.length; i++) {
         const key = ROSTER[i], def = CHARACTERS[key];
         try {
-            const vrm = await loadVRM(resolveModelUrl(key, MODELS_AVAILABLE));
-            applyFighterLook(vrm, key, def.rimColor);
-            applyOutline(vrm);
-            const box = new THREE.Box3().setFromObject(vrm.scene);
-            const h = (box.max.y - box.min.y) || 1.5;
-            vrm.scene.scale.setScalar(FIGHTER_HEIGHT / h);
-            applyFighterBuild(vrm, key);   // after normalisation — see build3DFighter
-            attachAccessories(vrm, key, def.rimColor);
+            const cfg = modelConfig(models, key);
+            const vrm = await loadVRM(cfg.url);
+            dressFighter(vrm, key, { rim: def.rimColor, height: FIGHTER_HEIGHT, cfg });
             vrm.scene.position.set(x0 + i * gap, 0, 0);
             vrm.scene.rotation.y = 0.15;
             scene.add(vrm.scene);
@@ -1386,4 +1379,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608121819-033a48
+// yw-202608131546-334536

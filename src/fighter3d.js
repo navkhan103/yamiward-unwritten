@@ -18,6 +18,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils, VRMHumanBoneName as B } from '@pixiv/three-vrm';
+import { attachAccessories } from './accessories.js';
 
 // ---------------------------------------------------------------------------
 // Model bytes cache
@@ -91,23 +92,51 @@ export async function loadVRM(url) {
 // replace these one at a time, and dropping assets/models/<key>.vrm in is all
 // that takes (see resolveModelUrl).
 
+// `cloth2` (VRoid's Onepiece/Tops_02) is the DOMINANT surface on this body — it
+// is the bodysuit, and it covers more of a fighter than everything else put
+// together. Five of these were authored near-black, which looked correct on a
+// single fighter and turned the line-up into eight black shapes on a night
+// stage. They are now mid-dark and clan-tinted: still night-ward, but each one
+// separates from the backdrop and from its neighbours. Judge this on the
+// ?roster=1 line-up, never on one fighter.
 const PALETTES = {
-    tetsuki:  { skin: 0xc9b6ad, hair: 0x241a1c, cloth1: 0x8e2018, cloth2: 0x2a1a18, shoes: 0x1a1214, eye: 0xe51e25 }, // oni: ash skin, forge red
+    tetsuki:  { skin: 0xc9b6ad, hair: 0x241a1c, cloth1: 0x8e2018, cloth2: 0x5a2f26, shoes: 0x4d3a33, eye: 0xe51e25 }, // oni: ash skin, forge red
     // Yukiwari is the snow fighter, but a near-white palette blew out to a
     // featureless blob once bloom hit it (roster QA). Pulled down into pale
     // blue-greys: still unmistakably "snow", still has readable form.
     yukiwari: { skin: 0xdccfc9, hair: 0xa9c4d4, cloth1: 0x9fc0c6, cloth2: 0x63879a, shoes: 0x546f7e, eye: 0x9be8e0 }, // yukionna
-    raiga:    { skin: 0xd9b89a, hair: 0x1c2b4a, cloth1: 0x2a4f8f, cloth2: 0x14203a, shoes: 0x0f1626, eye: 0x4a8fe8 }, // raiju: storm blue
-    mayoi:    { skin: 0xf0d9c2, hair: 0x3b2a34, cloth1: 0x2f6f63, cloth2: 0x7a2a52, shoes: 0x241a22, eye: 0x5be0c8 }, // kitsune: jade + fox rose
-    shigure:  { skin: 0xe3d6d0, hair: 0x2b2540, cloth1: 0x4a3f78, cloth2: 0x241f38, shoes: 0x191527, eye: 0x7c6fd4 }, // ameonna: rain violet
+    raiga:    { skin: 0xd9b89a, hair: 0x1c2b4a, cloth1: 0x2a4f8f, cloth2: 0x2b477e, shoes: 0x2e3d63, eye: 0x4a8fe8 }, // raiju: storm blue
+    mayoi:    { skin: 0xf0d9c2, hair: 0x3b2a34, cloth1: 0x2f6f63, cloth2: 0x7a2a52, shoes: 0x4a3448, eye: 0x5be0c8 }, // kitsune: jade + fox rose
+    shigure:  { skin: 0xe3d6d0, hair: 0x2b2540, cloth1: 0x4a3f78, cloth2: 0x36305c, shoes: 0x39335a, eye: 0x7c6fd4 }, // ameonna: rain violet
     tsukimi:  { skin: 0xf6ecea, hair: 0xe8dcf5, cloth1: 0xbfb0d8, cloth2: 0x6f6390, shoes: 0x4a4266, eye: 0xd8c9f0 }, // tsukiusagi: moon pale
-    kazakiri: { skin: 0xdcc3b4, hair: 0x2a1420, cloth1: 0x6e2a5e, cloth2: 0x2a1626, shoes: 0x1d1019, eye: 0xa0468c }, // tengu: plum + shadow
-    yumihari: { skin: 0xe8c9a0, hair: 0x30240f, cloth1: 0x9c6a1c, cloth2: 0x2e2413, shoes: 0x1f1a10, eye: 0xe0a83c }, // ryu: gold scale
+    kazakiri: { skin: 0xdcc3b4, hair: 0x2a1420, cloth1: 0x6e2a5e, cloth2: 0x53294a, shoes: 0x442b3c, eye: 0xa0468c }, // tengu: plum + shadow
+    yumihari: { skin: 0xe8c9a0, hair: 0x30240f, cloth1: 0x9c6a1c, cloth2: 0x5c4a24, shoes: 0x463a26, eye: 0xe0a83c }, // ryu: gold scale
 };
 
 /** Multiply a hex by a factor, for deriving a shade/outline tone. */
 function darken(hex, f) {
     return new THREE.Color(hex).multiplyScalar(f);
+}
+
+// The base model's bodysuit (VRoid `Onepiece`) ships a DARK texture, and a
+// material tint is a MULTIPLY against that texture — so the palette can only
+// ever make it darker. Every fighter's largest surface (7,086 triangles, more
+// than everything else combined) was therefore rendering black no matter what
+// colour it was assigned, which is most of why the line-up read as eight
+// silhouettes rather than eight fighters. Measured, not guessed: the tint was
+// set correctly on the material and the pixels were still #000000.
+//
+// The fix is gain. Each bodysuit tint is scaled so its brightest channel lands
+// on the same target, which lifts the dark texture into range and equalises the
+// cast at the same time — hue stays the fighter's, brightness stops being an
+// accident of which hex someone typed. Applied ONLY to that slot: everything
+// else on this body has a light texture and behaves normally.
+const CLOTH2_TARGET = 2.0;
+
+function bodysuitTint(hex) {
+    const c = new THREE.Color(hex);
+    const peak = Math.max(c.r, c.g, c.b) || 1;
+    return c.multiplyScalar(CLOTH2_TARGET / peak);
 }
 
 /**
@@ -120,72 +149,102 @@ function darken(hex, f) {
  * gets the clan colour, which is what actually separates eight silhouettes in a
  * dark arena.
  */
+/**
+ * The half of the look that is RENDER QUALITY rather than identity.
+ *
+ * Everything in here is about making an MToon material read as a fighter under
+ * stage light — it says nothing about who the fighter is, so it applies to an
+ * authored per-fighter model exactly as much as to the shared stand-in. Keeping
+ * it separate from the palette is what lets a model the user built in VRoid keep
+ * its own colours while still getting the game's cel look.
+ */
+function tuneMToon(m, rimColor) {
+    const n = m.name || '';
+    const isFace = /_EYE|Eyeline|Brow|Mouth/.test(n);
+    // Clan colour as the rim — the cheapest way to tell eight fighters apart at
+    // a glance in a night stage, and the single strongest "anime" cue available:
+    // a bright edge is what separates a character from the backdrop instead of
+    // letting them sink into it.
+    if (m.parametricRimColorFactor && !isFace) {
+        m.parametricRimColorFactor.copy(rimColor).multiplyScalar(0.16);
+        // Tight rim that hugs the silhouette instead of coating the fighter.
+        // Tuned down across three passes (0.62/p3.6 -> 0.42/p5.2 -> 0.16/p6.5)
+        // because LIMBS ARE CYLINDERS: on an arm or a leg most of the visible
+        // surface sits at a grazing angle, so a rim wide enough to look right on
+        // a flat chest repaints every limb. Tetsuki was solid gold with only his
+        // chest showing clan red. Judge rim width on a limb, never on the torso.
+        if ('parametricRimFresnelPowerFactor' in m) m.parametricRimFresnelPowerFactor = 6.5;
+        if ('parametricRimLiftFactor' in m) m.parametricRimLiftFactor = 0.0;
+        // Read the shader before touching these two, they are coupled:
+        //   rim  = parametricRimColor * fresnel  + matcapFactor * matcap
+        //   col += mix(1.0, directSpecular, rimLightingMixFactor) * rim
+        // So rimLightingMixFactor 1.0 means "modulate by scene light" (which
+        // quietly SUPPRESSES the term on a dark stage) and 0.0 means "always
+        // full". Setting it to 0 for a predictable edge is right, but it also
+        // unleashed the second half of that sum: VRoid ships a MATCAP at full
+        // white, and an unmodulated matcap painted Tetsuki head to toe in gold
+        // sheen and buried his clan red. The matcap has to be killed for the
+        // constant rim to be usable.
+        if ('rimLightingMixFactor' in m) m.rimLightingMixFactor = 0.0;
+        // Kill VRoid's spherical sheen — it is a portrait-viewer look and it
+        // fights a cel-shaded fighter under stage light.
+        if (m.matcapFactor) m.matcapFactor.setScalar(0.0);
+    }
+    // Crisper cel banding. MToon ships a soft ramp, which on a night stage reads
+    // as muddy gradient rather than the two-tone anime look the art direction is
+    // built on. `toony` hardens the terminator; `shift` widens the lit side so
+    // faces do not sit in shadow.
+    if (!isFace) {
+        if ('shadingToonyFactor' in m) m.shadingToonyFactor = 0.95;
+        if ('shadingShiftFactor' in m) m.shadingShiftFactor = -0.05;
+        if ('giEqualizationFactor' in m) m.giEqualizationFactor = 0.9;
+    }
+    m.needsUpdate = true;
+}
+
+/** Walk every material on a VRM once. */
+function eachMaterial(vrm, fn) {
+    vrm.scene.traverse((o) => {
+        if (!o.isMesh) return;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) if (m && m.name) fn(m);
+    });
+}
+
+/**
+ * Render tuning WITHOUT recolouring — for models that were authored per fighter.
+ * Their colours are a deliberate art decision; only the cel/rim setup is ours.
+ */
+export function applyUniversalLook(vrm, rim) {
+    const rimColor = new THREE.Color(rim ?? 0xffffff);
+    eachMaterial(vrm, (m) => tuneMToon(m, rimColor));
+}
+
 export function applyFighterLook(vrm, key, rim) {
     const p = PALETTES[key];
     if (!p) return;
     const rimColor = new THREE.Color(rim ?? 0xffffff);
 
-    vrm.scene.traverse((o) => {
-        if (!o.isMesh) return;
-        const mats = Array.isArray(o.material) ? o.material : [o.material];
-        for (const m of mats) {
-            if (!m || !m.name) continue;
-            const n = m.name;
-            let tint = null;
-            if (/_SKIN/.test(n)) tint = p.skin;
-            else if (/_HAIR/.test(n)) tint = p.hair;
-            else if (/Tops_01/.test(n)) tint = p.cloth1;
-            else if (/Tops_02|Onepiece/.test(n)) tint = p.cloth2;
-            else if (/Shoes/.test(n)) tint = p.shoes;
-            else if (/EyeIris/.test(n)) tint = p.eye;
-            if (tint === null) continue;   // face lines, eye whites, highlights: leave alone
+    eachMaterial(vrm, (m) => {
+        const n = m.name;
+        let tint = null, bodysuit = false;
+        if (/_SKIN/.test(n)) tint = p.skin;
+        else if (/_HAIR/.test(n)) tint = p.hair;
+        else if (/Tops_01/.test(n)) tint = p.cloth1;
+        else if (/Tops_02|Onepiece/.test(n)) { tint = p.cloth2; bodysuit = true; }
+        else if (/Shoes/.test(n)) tint = p.shoes;
+        else if (/EyeIris/.test(n)) tint = p.eye;
+        if (tint === null) return;   // face lines, eye whites, highlights: leave alone
 
-            if (m.color) m.color.set(tint);
-            // Shade tone must follow the lit tone or the dark side goes pale.
-            if (m.shadeColorFactor) m.shadeColorFactor.copy(darken(tint, 0.55));
-            if (m.outlineColorFactor) m.outlineColorFactor.copy(darken(tint, 0.18));
-            // Clan colour as the rim — the cheapest way to tell eight fighters
-            // apart at a glance in a night stage, and the single strongest
-            // "anime" cue available: a bright edge is what separates a character
-            // from the backdrop instead of letting them sink into it.
-            if (m.parametricRimColorFactor && !/_EYE|Eyeline|Brow|Mouth/.test(n)) {
-                m.parametricRimColorFactor.copy(rimColor).multiplyScalar(0.16);
-                // Tight rim that hugs the silhouette instead of coating the
-                // fighter. Tuned down across three passes (0.62/p3.6 -> 0.42/p5.2
-                // -> 0.16/p6.5) because LIMBS ARE CYLINDERS: on an arm or a leg
-                // most of the visible surface sits at a grazing angle, so a rim
-                // wide enough to look right on a flat chest repaints every limb.
-                // Tetsuki was solid gold with only his chest showing clan red.
-                // Judge rim width on a limb, never on the torso.
-                if ('parametricRimFresnelPowerFactor' in m) m.parametricRimFresnelPowerFactor = 6.5;
-                if ('parametricRimLiftFactor' in m) m.parametricRimLiftFactor = 0.0;
-                // Read the shader before touching these two, they are coupled:
-                //   rim  = parametricRimColor * fresnel  + matcapFactor * matcap
-                //   col += mix(1.0, directSpecular, rimLightingMixFactor) * rim
-                // So rimLightingMixFactor 1.0 means "modulate by scene light"
-                // (which quietly SUPPRESSES the term on a dark stage) and 0.0
-                // means "always full". Setting it to 0 for a predictable edge is
-                // right, but it also unleashed the second half of that sum: VRoid
-                // ships a MATCAP at full white, and an unmodulated matcap painted
-                // Tetsuki head to toe in gold sheen and buried his clan red. The
-                // matcap has to be killed for the constant rim to be usable.
-                if ('rimLightingMixFactor' in m) m.rimLightingMixFactor = 0.0;
-                // Kill VRoid's spherical sheen — it is a portrait-viewer look and
-                // it fights a cel-shaded fighter under stage light.
-                if (m.matcapFactor) m.matcapFactor.setScalar(0.0);
-            }
-
-            // Crisper cel banding. MToon ships a soft ramp, which on a night
-            // stage reads as muddy gradient rather than the two-tone anime look
-            // the art direction is built on. `toony` hardens the terminator;
-            // `shift` widens the lit side so faces do not sit in shadow.
-            if (!/_EYE|Eyeline|Brow|Mouth/.test(n)) {
-                if ('shadingToonyFactor' in m) m.shadingToonyFactor = 0.95;
-                if ('shadingShiftFactor' in m) m.shadingShiftFactor = -0.05;
-                if ('giEqualizationFactor' in m) m.giEqualizationFactor = 0.9;
-            }
-            m.needsUpdate = true;
-        }
+        const lit = bodysuit ? bodysuitTint(tint) : new THREE.Color(tint);
+        if (m.color) m.color.copy(lit);
+        // Shade tone must follow the LIT tone (gain included) or the dark side
+        // drops straight back to the black we just climbed out of.
+        if (m.shadeColorFactor) m.shadeColorFactor.copy(lit).multiplyScalar(0.55);
+        // The ink line is drawn flat, with no texture under it, so it takes the
+        // authored colour ungained — a gained outline is a grey halo.
+        if (m.outlineColorFactor) m.outlineColorFactor.copy(darken(tint, 0.18));
+        tuneMToon(m, rimColor);
     });
 }
 
@@ -271,16 +330,144 @@ export function applyOutline(vrm, width = 0.0035) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Model discovery — how an authored model takes over from the stand-in
+// ---------------------------------------------------------------------------
+// The palette and the build above exist for ONE reason: to fake eight identities
+// out of one body. The moment a fighter has a model of their own, both of them
+// become damage — recolouring hair the artist chose, and re-proportioning a body
+// they deliberately shaped. So a model's presence flips them off.
+//
+// Discovery is by FILE EXISTENCE, not a list in the source. A hand-maintained
+// list means every new model needs a code edit, which is a trap for whoever is
+// actually making the art. The rule is simply "the file is there, so it is used".
+//
+// Two ways to learn that, and both are needed:
+//   index.json  — a GENERATED list, written by model-intake --all and by deploy.
+//                 One request, no misses in the console.
+//   HEAD probes — the fallback when there is no index, i.e. exactly the case the
+//                 index cannot cover: a model dropped in without running
+//                 anything. Costs one 404 per absent fighter, which is why it is
+//                 the fallback and not the default.
+//
+// Defaults once a model is found:
+//   palette     OFF — the model's own colours are the art
+//   build       OFF — the model's own proportions are the art
+//   accessories ON  — VRoid cannot easily grow horns or fox ears, so the code
+//                     keeps providing them. Author them yourself and turn this
+//                     off per fighter in models.json.
+//   height      preserved RELATIVELY (see dressFighter) — an authored 185cm oni
+//                     stays taller than an authored 145cm rabbit.
+//
+// assets/models/models.json is optional and overrides any flag:
+//   { "tetsuki": { "accessories": false }, "mayoi": { "build": true } }
+
+const STANDIN_URL = './assets/models/base.vrm';
+
+/** Everything the dresser needs to know about one fighter's model. */
+function standInConfig() {
+    return { url: STANDIN_URL, custom: false, palette: true, build: true, accessories: true };
+}
+
+let _discovery = null;
+
 /**
- * Where a fighter's model lives. A real per-fighter export wins if present;
- * otherwise everyone shares the stand-in and is told apart by palette.
+ * Resolve every roster key to its model config, once per session.
+ *
+ * Memoised deliberately: every caller awaits the SAME promise, so a match can
+ * never start against a half-finished probe and end up with one fighter dressed
+ * by the old rules and the other by the new ones.
  */
-export function resolveModelUrl(key, available) {
-    // base.vrm is the SHARED stand-in and must stay generic — it is what the
-    // seven fighters without their own export are wearing. Keeping it separate
-    // from tetsuki.vrm is deliberate: it means a real, oni-specific Tetsuki can
-    // be dropped in without turning the whole roster into Tetsuki.
-    return (available && available.has(key)) ? `./assets/models/${key}.vrm` : './assets/models/base.vrm';
+export function discoverModels(roster) {
+    if (_discovery) return _discovery;
+
+    const probe = async (key) => {
+        try {
+            const r = await fetch(`./assets/models/${key}.vrm`, { method: 'HEAD' });
+            return r.ok ? key : null;
+        } catch { return null; }
+    };
+    const listed = fetch('./assets/models/index.json')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => (Array.isArray(j?.models) ? j.models : null))
+        .catch(() => null)
+        // No index, or an index that does not parse: ask the server directly
+        // rather than silently pretending nobody has a model.
+        .then((list) => list || Promise.all(roster.map(probe)));
+
+    const overrides = fetch('./assets/models/models.json')
+        .then((r) => (r.ok ? r.json() : {}))
+        .catch(() => ({}));
+
+    _discovery = Promise.all([listed, overrides]).then(([found, over]) => {
+        const map = new Map();
+        for (const key of roster) {
+            const has = found.includes(key);
+            // base.vrm is the SHARED stand-in and must stay generic — it is what
+            // the fighters without their own export are wearing. Keeping it
+            // separate from tetsuki.vrm is deliberate: a real, oni-specific
+            // Tetsuki can drop in without turning the whole roster into Tetsuki.
+            const cfg = has
+                ? { url: `./assets/models/${key}.vrm`, custom: true, palette: false, build: false, accessories: true }
+                : standInConfig();
+            map.set(key, Object.assign(cfg, over && over[key]));
+        }
+        return map;
+    });
+    return _discovery;
+}
+
+/** Config for one fighter, tolerating a missing/incomplete discovery map. */
+export function modelConfig(models, key) {
+    return (models && models.get(key)) || standInConfig();
+}
+
+// An authored model carries its own height, and that height is the point — the
+// user sets it in VRoid in centimetres. Normalising every model to one number
+// would erase exactly the difference they authored. So a custom model is scaled
+// by a SHARED factor derived from this reference instead of per-model: a fighter
+// authored at 170cm lands on the game's standard height, and everyone else keeps
+// their real ratio to that.
+const AUTHORED_REF_H = 1.70;
+// ...but a wrong export unit (or a chibi test model) would otherwise put a
+// fighter through the roof or below the floor, so the RESULT is clamped. The
+// band is wide enough to hold the intended cast (≈145cm rabbit to ≈195cm oni).
+const HEIGHT_BAND = [1.42, 2.15];
+
+/**
+ * Turn a freshly loaded VRM into a specific fighter.
+ *
+ * This is the ONLY place the order is written down, because the order is not
+ * obvious and has bitten us twice:
+ *   1. look BEFORE the first compile, so shaders are built with final colours
+ *   2. outline
+ *   3. height — measured from the UNTOUCHED mesh. Normalising after the build
+ *      makes the bounding box include the build's own scaling, and the
+ *      normalisation then cancels exactly the height differences the build
+ *      exists to create.
+ *   4. build, then accessories (which hang off the built bones and inherit
+ *      their scale for free)
+ *
+ * Returns the accessory roots so they can be disposed with the fighter.
+ */
+export function dressFighter(vrm, key, { rim, height = 1.8, cfg = null } = {}) {
+    const c = cfg || standInConfig();
+    if (c.palette) applyFighterLook(vrm, key, rim);
+    else applyUniversalLook(vrm, rim);
+    applyOutline(vrm);
+
+    const box = new THREE.Box3().setFromObject(vrm.scene);
+    const h = (box.max.y - box.min.y) || 1.5;
+    if (c.custom) {
+        // Preserve what the artist authored, in proportion (see AUTHORED_REF_H).
+        const want = Math.min(HEIGHT_BAND[1], Math.max(HEIGHT_BAND[0], h * (height / AUTHORED_REF_H)));
+        vrm.scene.scale.setScalar(want / h);
+    } else {
+        vrm.scene.scale.setScalar(height / h);
+    }
+
+    if (c.build) applyFighterBuild(vrm, key);
+    return c.accessories ? attachAccessories(vrm, key, rim) : [];
 }
 
 // ---------------------------------------------------------------------------

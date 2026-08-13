@@ -1,0 +1,3 @@
+{
+  "_readme": "Per-fighter overrides, hand-edited. Only needed for exceptions — see VROID-FIGHTER-SPECS.md §1. Example: \"kazakiri\": { \"accessories\": false } when the model already has authored wings. Keys: palette, build, accessories, custom, url. Unlisted fighters use the defaults."
+}

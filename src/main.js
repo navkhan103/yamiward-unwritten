@@ -178,16 +178,18 @@ async function setStage(id) {
  * stand-in in their clan palette. Nothing here needs editing to upgrade a
  * fighter — the file's existence is the switch (see discoverModels).
  */
-// `?vrm3d=1` swaps in real 3D (VRM) fighters. Opt-in while the 3D roster is one
-// model deep — every fighter currently loads the same stand-in in their clan
-// palette. Module-scope because both the select screen (to prefetch) and
+// 3D (VRM) fighters are the DEFAULT as of 2026-08-13 (user ruling — the 3D
+// path is where all the animation/combat/look work lives, so it is the game).
+// `?dolls=1` keeps the old paper-doll path reachable as a fallback while the
+// per-fighter authored models are still landing; `?vrm3d=1` is accepted for
+// old links. Module-scope because both the select screen (to prefetch) and
 // startMatch (to build) need to agree on it.
 // Shared reference height for every fighter before their build is applied. The
 // engine uses cylinder hitboxes, not mesh bounds, so visual height differences
 // are free — they change silhouette without touching gameplay.
 const FIGHTER_HEIGHT = 1.8;
 
-const USE_3D = new URLSearchParams(location.search).has('vrm3d');
+const USE_3D = !new URLSearchParams(location.search).has('dolls');
 
 /**
  * Character lighting for the 3D path, added once.
@@ -1379,4 +1381,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608131546-334536
+// yw-202608131559-d1b8e1

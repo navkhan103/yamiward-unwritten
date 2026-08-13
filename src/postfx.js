@@ -15,6 +15,11 @@ export function createInkNoirFX(renderer, scene, camera, opts = {}) {
 
     // Impact state
     let impactValue = 0;
+    // Speed lines decay smoothly (they are a sustained rush); the impact frame
+    // is COUNTED IN FRAMES and cut, because a fading impact frame is a flash
+    // and a flash is what everyone else's game does.
+    let speedValue = 0;
+    let flashFramesLeft = 0;
 
     // Render targets
     let rt0 = null;  // Scene pass (full res)
@@ -44,6 +49,8 @@ export function createInkNoirFX(renderer, scene, camera, opts = {}) {
         resolution: { value: new THREE.Vector2(1, 1) },
         halfRes: { value: new THREE.Vector2(0.5, 0.5) },
         impact: { value: 0 },
+        speedLines: { value: 0 },
+        flashFrame: { value: 0 },
         bloomThreshold: { value: options.bloomThreshold },
         bloomStrength: { value: options.bloomStrength },
         toneScale: { value: options.toneScale },
@@ -169,6 +176,8 @@ export function createInkNoirFX(renderer, scene, camera, opts = {}) {
                 uniform sampler2D tBloom;
                 uniform vec2 resolution;
                 uniform float impact;
+                uniform float speedLines;
+                uniform float flashFrame;
                 uniform float bloomStrength;
                 uniform float toneScale;
                 uniform float vignette;
@@ -317,6 +326,52 @@ export function createInkNoirFX(renderer, scene, camera, opts = {}) {
                     // -- impact brightness pop
                     finalColor *= 1.0 + impact * 0.4;
 
+                    // -- speed lines: radial streaks that rush the eye toward
+                    //    the centre of the action. Screen-space and procedural,
+                    //    so they cost one noise lookup and no assets. Held off
+                    //    the middle of the frame (the fighters live there) and
+                    //    ramped in toward the edges, which is exactly how they
+                    //    are drawn on an animation cel.
+                    if (speedLines > 0.0) {
+                        vec2 d = uv - 0.5;
+                        d.x *= resolution.x / resolution.y;   // round, not elliptical
+                        float ang = atan(d.y, d.x);
+                        float rad = length(d);
+                        // QUANTISE the angle into spoke slots before hashing.
+                        // Hashing the continuous angle instead produces
+                        // per-pixel noise that looks like film grain, not
+                        // speed lines — the streaks have to be coherent along
+                        // a ray, which means every pixel on that ray must get
+                        // the same random number.
+                        const float SPOKES = 110.0;
+                        float a01 = ang * 0.15915494 + 0.5;    // 1/(2pi)
+                        float idx = floor(a01 * SPOKES);
+                        float within = fract(a01 * SPOKES);
+                        float h = fract(sin(idx * 78.233) * 43758.5453);
+                        // Only some slots carry a line, and each has its own
+                        // width and start radius — evenly spaced lines read as
+                        // a grating.
+                        float exists = step(0.52, h);
+                        // Thin. Tuned against a render: at 0.10-0.30 half-width
+                        // these read as grey BANDS across the stage rather than
+                        // drawn lines, and they swamp the fighters.
+                        float w = 0.04 + h * 0.09;
+                        float line = exists * (1.0 - smoothstep(w, w + 0.09, abs(within - 0.5)));
+                        float r0 = 0.24 + h * 0.20;
+                        float edge = smoothstep(r0, r0 + 0.30, rad);
+                        finalColor = mix(finalColor, vec3(1.0), line * edge * speedLines * 0.5);
+                    }
+
+                    // -- IMPACT FRAME. Not a fade: a hard 1-2 frame cut to a
+                    //    high-contrast stamp of the silhouette, which is the
+                    //    single most recognisable device in an anime fight. It
+                    //    lands last so nothing downstream can soften it.
+                    if (flashFrame > 0.0) {
+                        float fl = dot(finalColor, vec3(0.299, 0.587, 0.114));
+                        vec3 stamp = fl > 0.16 ? vec3(1.0) : vec3(0.02, 0.02, 0.04);
+                        finalColor = mix(finalColor, stamp, flashFrame);
+                    }
+
                     gl_FragColor = vec4(finalColor, color.a);
                 }
             `,
@@ -397,6 +452,16 @@ export function createInkNoirFX(renderer, scene, camera, opts = {}) {
         impactValue = Math.max(0, impactValue - dt * 4.0);
         commonUniforms.impact.value = impactValue;
 
+        speedValue = Math.max(0, speedValue - dt * 2.2);
+        commonUniforms.speedLines.value = speedValue;
+
+        // Frame-counted, never time-decayed. At 60fps two frames is 33ms — long
+        // enough to register, short enough that the eye reads it as a stamp
+        // rather than a strobe. Counted in RENDERED frames on purpose: during
+        // hitstop the world is frozen and the stamp should hold with it.
+        commonUniforms.flashFrame.value = flashFramesLeft > 0 ? 1 : 0;
+        if (flashFramesLeft > 0) flashFramesLeft--;
+
         // PASS 1: Render scene to RT0
         renderer.setRenderTarget(rt0);
         renderer.clear();
@@ -438,6 +503,16 @@ export function createInkNoirFX(renderer, scene, camera, opts = {}) {
         impactValue = Math.max(impactValue, Math.min(strength, 1.0));
     }
 
+    /** Rush lines toward the centre. `strength` 0..1, decays over ~0.5s. */
+    function speed(strength) {
+        speedValue = Math.max(speedValue, Math.min(strength, 1.0));
+    }
+
+    /** Hard impact frame for `frames` rendered frames (2 is the anime default). */
+    function flash(frames = 2) {
+        flashFramesLeft = Math.max(flashFramesLeft, frames);
+    }
+
     // Resize function
     function resize(w, h) {
         resizeTargets(w, h);
@@ -463,6 +538,8 @@ export function createInkNoirFX(renderer, scene, camera, opts = {}) {
     return {
         render,
         impact,
+        speed,
+        flash,
         resize,
         setEnabled,
         dispose

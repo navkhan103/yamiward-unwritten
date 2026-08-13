@@ -983,9 +983,20 @@ function handleEvents() {
                 // hitstop holds. `isSuper` is authored on the move, so this
                 // stays right for any move added later.
                 if (ev.move?.isSuper) { camRig.hero(1.3); overlay.cinematic(1.5); }
-                const kind = ev.counter ? 'heavy' : 'light';
+                // Spark tier from what landed, not just from the counter flag.
+                // `launcher` — the biggest preset in the system — had never been
+                // reachable: every hit in the game resolved to light or heavy,
+                // so a super and a counter jab threw identical sparks.
+                const kind = ev.move?.isSuper ? 'launcher'
+                    : (ev.counter || dmg >= 26) ? 'heavy' : 'light';
                 const tint = engine.fighters[attackerSlot].def.color;
                 hitSparks.burst(impactPoint, kind, tint);
+
+                // Impact frame — the hard 1-2 frame stamp. Reserved for hits
+                // that are supposed to hurt; on every jab it becomes a strobe
+                // and stops meaning anything.
+                if (ev.move?.isSuper) { fx.flash(3); fx.speed(1.0); }
+                else if (ev.counter || dmg >= 26) fx.flash(2);
                 break;
             }
             case 'block': {
@@ -1447,4 +1458,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608131640-06ee31
+// yw-202608131651-5f27dc

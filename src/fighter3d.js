@@ -19,6 +19,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils, VRMHumanBoneName as B } from '@pixiv/three-vrm';
 import { attachAccessories } from './accessories.js';
+import { attachGarments } from './garments.js';
 import { loadClipBundle, ClipPlayer } from './anim.js';
 
 // The baked mocap bundle, fetched once per session. A missing bundle is not an
@@ -154,20 +155,80 @@ function darken(hex, f) {
 //   jacket LOUD  — it carries the clan colour and must read instantly
 //   bodysuit QUIET — supporting, and above ~1.2 the brighter parts of its
 //                    texture clip past white and go chalky
-const CLOTH_GAIN = { cloth1: 1.70, cloth2: 1.05 };
+//
+// SLOT GAIN TABLE. Every slot needs a lift for the same reason the jacket did —
+// the texture underneath is dark — but they do NOT all want the same treatment,
+// and getting that wrong is what left the cast reading washed out and generic:
+//
+//   NORMALISE (`to`) — force every fighter's peak to one value. Right for cloth
+//   and eyes, where equal loudness across the cast is the goal and only hue
+//   should differ. Wrong anywhere the cast's own lightness spread is identity.
+//
+//   LIFT (`scale`/`min`/`max`) — multiply, then clamp into a band. Right for
+//   HAIR, which is the trap: Tetsuki's hair is near-black (0x241a1c, peak 0.14)
+//   and Tsukimi's is near-white (0xe8dcf5, peak 0.96). Normalising them to one
+//   target would have fixed Tetsuki's invisible hair by destroying the only
+//   thing that separates those two heads. Lifting keeps the ORDER — dark hair
+//   stays dark, just no longer black — while guaranteeing a floor above zero.
+//
+// Skin is lifted rather than normalised for the same reason (eight skin tones
+// are eight different people) and capped tight, because a clipped face is the
+// most obvious artefact in the game.
+//
+// ALL NUMBERS BELOW ARE sRGB. This is not a detail — it is a bug we already
+// shipped. `new THREE.Color(0x241a1c)` stores LINEAR channels, so Tetsuki's
+// near-black hair reads as peak 0.017, not the 0.14 the hex looks like. Lifting
+// that to "0.28" in linear space is a 16x multiply, and it turned the black-
+// haired oni's head dusty mauve (#907177, measured). gainTint() converts to
+// sRGB, applies the rule there, and converts back — so these numbers mean what
+// someone reading the hex would assume they mean.
+const SLOTS = {
+    skin:   { scale: 1.15, min: 0.78, max: 1.00 },
+    // Floor judged from a render: dark hair must stay legibly dark. 0.28 sRGB
+    // is roughly 0x47 — a black that is no longer a hole in the silhouette.
+    hair:   { scale: 1.70, min: 0.28, max: 1.00 },
+    cloth1: { to: 1.27 },   // jacket LOUD — carries the clan colour
+    cloth2: { to: 1.02 },   // bodysuit QUIET — much above this it clips to a chalky mottle
+    shoes:  { scale: 1.30, min: 0.30, max: 0.90 },
+    // Iris DOWN, not up. It is the one slot where the intuition is backwards:
+    // the eye sits next to a pure-white eye-white and a pure-white highlight, so
+    // a bright iris is the first thing bloom eats — Tetsuki's arterial red
+    // 0xe51e25 came out as pale pink and his face read blank. A deep iris is the
+    // one that survives the stage light and keeps the clan colour readable.
+    eye:    { to: 0.62 },
+};
 
 /**
- * Scale a tint so its brightest channel hits `target`.
+ * Take the blowout off the whites of the eye.
  *
- * Needed because a material tint MULTIPLIES the model's texture, and these
- * textures are dark — so an authored colour can only ever come out darker than
- * authored. Normalising to a target also equalises the cast: hue stays the
- * fighter's, brightness stops being an accident of which hex someone typed.
+ * These are the only materials on the model authored at pure #ffffff, which
+ * means they are the only ones guaranteed to clip and feed the bloom pass.
+ * The face is where the "washed out" report actually came from: not the skin,
+ * but two white discs either side of the iris flaring over it.
  */
-function clothTint(hex, target) {
-    const c = new THREE.Color(hex);
-    const peak = Math.max(c.r, c.g, c.b) || 1;
-    return c.multiplyScalar(target / peak);
+const EYE_WHITE_DIM = 0.78;
+
+/**
+ * Apply a slot's gain rule, in sRGB.
+ *
+ * Needed at all because a material tint MULTIPLIES the model's texture, and
+ * these textures are dark — so an authored colour can only ever come out darker
+ * than authored. (This is the bug that rendered eight fighters as black
+ * silhouettes: the hexes were correct the whole time.)
+ *
+ * Targets above 1.0 are deliberate and cannot be expressed as a colour — they
+ * are a multiplier meant to overdrive the texture, so the result is built by
+ * scaling the sRGB triple and letting the conversion carry it past white.
+ */
+const _srgb = { r: 0, g: 0, b: 0 };
+function gainTint(hex, rule) {
+    const s = new THREE.Color(hex).getRGB(_srgb, THREE.SRGBColorSpace);
+    const peak = Math.max(s.r, s.g, s.b) || 1;
+    const want = rule.to !== undefined
+        ? rule.to
+        : Math.min(rule.max, Math.max(rule.min, peak * rule.scale));
+    const k = want / peak;
+    return new THREE.Color().setRGB(s.r * k, s.g * k, s.b * k, THREE.SRGBColorSpace);
 }
 
 /**
@@ -258,16 +319,21 @@ export function applyFighterLook(vrm, key, rim) {
 
     eachMaterial(vrm, (m) => {
         const n = m.name;
-        let tint = null, gain = 0;
-        if (/_SKIN/.test(n)) tint = p.skin;
-        else if (/_HAIR/.test(n)) tint = p.hair;
-        else if (/Tops_01/.test(n)) { tint = p.cloth1; gain = CLOTH_GAIN.cloth1; }
-        else if (/Tops_02|Onepiece/.test(n)) { tint = p.cloth2; gain = CLOTH_GAIN.cloth2; }
-        else if (/Shoes/.test(n)) tint = p.shoes;
-        else if (/EyeIris/.test(n)) tint = p.eye;
-        if (tint === null) return;   // face lines, eye whites, highlights: leave alone
+        let slot = null;
+        if (/_SKIN/.test(n)) slot = 'skin';
+        else if (/_HAIR/.test(n)) slot = 'hair';
+        else if (/Tops_01/.test(n)) slot = 'cloth1';
+        else if (/Tops_02|Onepiece/.test(n)) slot = 'cloth2';
+        else if (/Shoes/.test(n)) slot = 'shoes';
+        else if (/EyeIris/.test(n)) slot = 'eye';
+        else if (/EyeWhite|EyeHighlight/.test(n)) {
+            if (m.color) m.color.multiplyScalar(EYE_WHITE_DIM);
+            return;                  // no clan tint here — a white is a white
+        }
+        if (slot === null) return;   // face lines, brows: leave alone
 
-        const lit = gain ? clothTint(tint, gain) : new THREE.Color(tint);
+        const tint = p[slot];
+        const lit = gainTint(tint, SLOTS[slot]);
         if (m.color) m.color.copy(lit);
         // Shade tone must follow the LIT tone (gain included) or the dark side
         // drops straight back to the black we just climbed out of.
@@ -498,7 +564,12 @@ export function dressFighter(vrm, key, { rim, height = 1.8, cfg = null } = {}) {
     }
 
     if (c.build) applyFighterBuild(vrm, key);
-    return c.accessories ? attachAccessories(vrm, key, rim) : [];
+    if (!c.accessories) return [];
+    // Garments ride with accessories: both hang off built bones, both are ours
+    // rather than the model's, and both are skipped for an authored per-fighter
+    // model — someone who dressed a character in VRoid does not want a
+    // procedural robe stacked on top of the one they made.
+    return [...attachAccessories(vrm, key, rim), ...(c.palette ? attachGarments(vrm, key, rim) : [])];
 }
 
 // ---------------------------------------------------------------------------

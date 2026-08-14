@@ -1,6 +1,6 @@
 {
- "build": "yw-202608140010-c7c1ce",
- "created": "2026-08-14T00:10:23.071Z",
+ "build": "yw-202608140013-6022e3",
+ "created": "2026-08-14T00:13:56.613Z",
  "files": {
   "assets/anim/clips.ywa": {
    "sha256": "70b9f8cfa43572210eafc785ec4a9abffa6f9b9bcf1ee7b467218d41ce072167",
@@ -291,7 +291,7 @@
    "bytes": 3214
   },
   "index.html": {
-   "sha256": "78a858113d5a66238842a9379e721be3c3afb2f4765060a229059470643d54e1",
+   "sha256": "2f4e1f6004a380c26acada0f1039eb2e0bc9bbb4f49ab009715da73047a449ab",
    "bytes": 5552
   },
   "src/CombatEngine.js": {
@@ -331,8 +331,8 @@
    "bytes": 57949
   },
   "src/garments.js": {
-   "sha256": "8273c50d7d2b7576568e02694e8eb465b3abbd81698e8cc0ae863ea16cf2870d",
-   "bytes": 15192
+   "sha256": "a77b5243bc288e18a8c3edacdef7213c230b6efa66da5e8c33aad56a1cefd34f",
+   "bytes": 14918
   },
   "src/hitsparks.js": {
    "sha256": "51984a419072eaee82c7ed9c703505cce27db55b737aa1f755e2c6c95dafa5c3",
@@ -355,7 +355,7 @@
    "bytes": 12737
   },
   "src/main.js": {
-   "sha256": "e29238ce2d8171d84758d12f33b1c6f2816b2085c65886b35b0078ebd1eab68c",
+   "sha256": "de16796f7547ed9efa3aee248dbc9713426a7ccb98115eeea6b66485e47bc7e0",
    "bytes": 71320
   },
   "src/motionfx.js": {
@@ -391,7 +391,7 @@
    "bytes": 6028
   },
   "styles.css": {
-   "sha256": "936bb1f4a5dd6fbcbf50104fc0bd7d9fbbd6f292f98b9aac4406997562965c80",
+   "sha256": "d7c3ee73c40cff9c6c3b9475a94a209f3acbdd7d70e276a40dabe3f598d084bf",
    "bytes": 17806
   },
   "vendor/addons/loaders/GLTFLoader.js": {

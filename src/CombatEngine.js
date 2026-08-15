@@ -97,6 +97,10 @@ export const Btn = Object.freeze({
     SPECIAL: 512,
 });
 
+/** Buttons that can sit in the input buffer. Shared by control() and the
+ *  hitstop freeze path, which both capture rising edges into that buffer. */
+const ATTACK_BITS = Btn.LIGHT | Btn.HEAVY | Btn.LOW | Btn.SUPER | Btn.SPECIAL;
+
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
 /** Deterministic RNG — state lives on the engine, never on Math. */
@@ -199,8 +203,6 @@ export class CombatEngine {
         this.fighters = [new Fighter(charA, 0), new Fighter(charB, 1)];
         this.frame = 0;
         this.hitstop = 0;
-        this.shake = 0;
-
         this.roundTime = opts.roundSeconds ?? 60;
         this.timer = this.roundTime * FPS;
         this.round = 1;
@@ -261,12 +263,20 @@ export class CombatEngine {
 
         // Hitstop: the freeze on impact. Nothing moves, but the clock on
         // cosmetics keeps running. This is most of what "weight" feels like.
+        //
+        // Input is still SAMPLED during the freeze, and that is not cosmetic.
+        // Hitstop is exactly when a player inputs the follow-up — it is the
+        // combo window, and `cancelInto` below reads the buffer this fills.
+        // control() is the only place prevInput advances and bufferedBtn is
+        // set, so skipping it outright meant a press-and-release inside the
+        // freeze vanished: at 60Hz a super's 16-frame stop is ~267ms, longer
+        // than a normal tap. Held buttons always survived (the rising edge
+        // just landed late, on the first unfrozen frame); taps did not.
         if (this.hitstop > 0) {
             this.hitstop--;
-            if (this.shake > 0) this.shake--;
+            for (let i = 0; i < 2; i++) this.bufferDuringFreeze(this.fighters[i], inputs[i] | 0);
             return;
         }
-        if (this.shake > 0) this.shake--;
 
         if (this.phase === 'INTRO') {
             this.phaseFrame++;
@@ -412,7 +422,6 @@ export class CombatEngine {
         // not a normal — could never fire. Same bug family as buttonForKey.
         att.canCancel = true;
         this.hitstop = m.hitstop ?? 5;
-        this.shake = 4;
         this.emit('hit', {
             slot: def.slot, attacker: att.slot, move: m, damage: dmg,
             counter: false, combo: def.comboCount, comboDamage: def.comboDamage,
@@ -446,6 +455,28 @@ export class CombatEngine {
         }
     }
 
+    /**
+     * The buffering half of control(), for frames the simulation is frozen by
+     * hitstop. Captures the rising edge into the input buffer and nothing
+     * else — no state machine, no stateFrame, no physics.
+     *
+     * The buffer is deliberately NOT aged here. No game time passes for a
+     * fighter during a freeze, so a button pressed into the stop should still
+     * be waiting when it lifts; aging it would let a long super freeze expire
+     * the very input the freeze exists to let you make.
+     *
+     * Deterministic from (state, inputs), so the replay contract at the top of
+     * this file still holds.
+     */
+    bufferDuringFreeze(f, raw) {
+        const pressed = raw & ~f.prevInput;
+        f.prevInput = raw;
+        if (pressed & ATTACK_BITS) {
+            f.bufferedBtn = pressed & ATTACK_BITS;
+            f.bufferAge = 6;
+        }
+    }
+
     control(f, raw) {
         const pressed = raw & ~f.prevInput;
         f.prevInput = raw;
@@ -453,7 +484,6 @@ export class CombatEngine {
 
         if (f.invuln > 0) f.invuln--;
         if (f.bufferAge > 0) { f.bufferAge--; if (f.bufferAge === 0) f.bufferedBtn = 0; }
-        const ATTACK_BITS = Btn.LIGHT | Btn.HEAVY | Btn.LOW | Btn.SUPER | Btn.SPECIAL;
         if (pressed & ATTACK_BITS) {
             f.bufferedBtn = pressed & ATTACK_BITS;
             f.bufferAge = 6;
@@ -668,7 +698,7 @@ export class CombatEngine {
     onWall(f) {
         if (f.state === State.JUGGLED && Math.abs(f.vel.x) > 0.06) {
             f.vel.x = -f.vel.x * 0.25;
-            this.hitstop = 8; this.shake = 10;
+            this.hitstop = 8;
             this.emit('wallsplat', { slot: f.slot });
         } else {
             f.vel.x = 0;
@@ -779,7 +809,6 @@ export class CombatEngine {
             def.health = Math.max(0, def.health - chip);
             att.meter = clamp(att.meter + (m.meterGainAttacker ?? 6) * 0.5, 0, 100);
             this.hitstop = Math.round((m.hitstop ?? 6) * 0.7);
-            this.shake = 6;
             this.emit('armor', { slot: def.slot, attacker: att.slot, move: m, damage: chip });
             return;
         }
@@ -795,7 +824,6 @@ export class CombatEngine {
             att.meter = clamp(att.meter + (m.meterGainAttacker ?? 4) * 0.5, 0, 100);
             def.meter = clamp(def.meter + (m.meterGainDefender ?? 3), 0, 100);
             this.hitstop = Math.round((m.hitstop ?? 6) * 0.5);
-            this.shake = 3;
             att.canCancel = true;
             this.emit('block', { slot: def.slot, move: m, advantage: this.advantageOnBlock(m) });
             return;
@@ -839,8 +867,6 @@ export class CombatEngine {
         def.meter = clamp(def.meter + (m.meterGainDefender ?? 3), 0, 100);
         att.canCancel = true;
         this.hitstop = m.hitstop ?? 7;
-        this.shake = 5 + Math.round((m.hitstop ?? 7) * 0.6);
-
         this.emit('hit', {
             slot: def.slot, attacker: att.slot, move: m, damage: dmg,
             counter, combo: def.comboCount, comboDamage: def.comboDamage,
@@ -856,7 +882,7 @@ export class CombatEngine {
 
     knockout() {
         this.phase = 'KO'; this.phaseFrame = 0;
-        this.hitstop = 20; this.shake = 18;
+        this.hitstop = 20;
         const dead = this.fighters[0].health <= 0 ? 0 : 1;
         if (this.fighters[0].health <= 0 && this.fighters[1].health <= 0) {
             this.winner = 0;

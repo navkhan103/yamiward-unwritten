@@ -50,12 +50,42 @@ export function loadMocap(url = './assets/anim/clips.ywa') {
 // one fighter cannot leak into the other.
 const _bytes = new Map();   // url -> Promise<ArrayBuffer>
 
+/**
+ * Progress listeners for the model download. base.vrm is 9.8MB — 56% of the
+ * whole payload — and until now it downloaded behind a BLANK SCREEN. On a phone
+ * over 4G that is a multi-second void with no evidence the page is alive, which
+ * is a bounce, not a load. Anyone can subscribe; the fetch reports bytes.
+ * @type {Set<(loaded:number, total:number)=>void>}
+ */
+const _progress = new Set();
+export function onVRMProgress(fn) { _progress.add(fn); return () => _progress.delete(fn); }
+
 function vrmBytes(url) {
     let p = _bytes.get(url);
     if (!p) {
-        p = fetch(url).then((r) => {
+        p = fetch(url).then(async (r) => {
             if (!r.ok) throw new Error(`${r.status} fetching ${url}`);
-            return r.arrayBuffer();
+            // Stream so we can report progress. Content-Length is absent under
+            // some proxies and chunked encodings, so `total` may be 0 —
+            // listeners must treat it as "unknown", never divide by it blindly.
+            const total = Number(r.headers.get('content-length')) || 0;
+            if (!r.body || !_progress.size) return r.arrayBuffer();
+            const reader = r.body.getReader();
+            const chunks = [];
+            let loaded = 0;
+            for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+                loaded += value.length;
+                for (const fn of _progress) { try { fn(loaded, total); } catch { /* a UI bug must not kill the load */ } }
+            }
+            // Reassemble. Concatenating here rather than using Response(...)
+            // keeps the return type an ArrayBuffer, which parseAsync expects.
+            const out = new Uint8Array(loaded);
+            let at = 0;
+            for (const c of chunks) { out.set(c, at); at += c.length; }
+            return out.buffer;
         }).catch((e) => { _bytes.delete(url); throw e; });   // don't cache a failure
         _bytes.set(url, p);
     }

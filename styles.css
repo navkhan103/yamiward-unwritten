@@ -698,4 +698,181 @@ html, body {
     display: none;
 }
 
-/* yw-202608140013-6022e3 */
+/* ===========================================================================
+   TOUCH CONTROLS
+   ---------------------------------------------------------------------------
+   Hidden by default and revealed only on coarse-pointer / narrow devices (see
+   touch.js). The whole block is inside #hud, which is pointer-events:none, so
+   every interactive piece here must opt back IN explicitly.
+
+   `touch-action: none` on the interactive parts is not optional: without it the
+   browser claims the gesture for scroll/zoom and the stick dies mid-drag.
+   =========================================================================== */
+#touch { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
+#touch[hidden] { display: none; }
+
+#t-stick-zone {
+    position: absolute; left: 0; bottom: 0;
+    width: 46%; height: 62%;
+    pointer-events: auto;
+    touch-action: none;
+}
+
+#t-stick {
+    position: fixed; width: 0; height: 0;
+    opacity: 0; transition: opacity .12s ease;
+    pointer-events: none;
+}
+#t-stick.on { opacity: 1; }
+#t-stick::before {
+    content: ''; position: absolute;
+    left: -62px; top: -62px; width: 124px; height: 124px;
+    border-radius: 50%;
+    border: 2px solid rgba(155, 232, 224, .35);
+    background: radial-gradient(circle, rgba(10,14,18,.34), rgba(10,14,18,.10));
+}
+#t-stick i {
+    position: absolute; left: -26px; top: -26px;
+    width: 52px; height: 52px; border-radius: 50%;
+    background: rgba(155, 232, 224, .55);
+    box-shadow: 0 0 14px rgba(155, 232, 224, .45);
+}
+
+#t-buttons {
+    position: absolute; right: 3.2vw; bottom: 3.4vh;
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    gap: 10px;
+    pointer-events: none;
+}
+.t-btn {
+    /* 62px floor — comfortably above the 44px touch-target minimum, because a
+       fighting game needs confident presses, not accurate ones. */
+    width: 62px; height: 62px; min-width: 44px; min-height: 44px;
+    border-radius: 50%;
+    border: 2px solid rgba(155, 232, 224, .40);
+    background: rgba(12, 16, 20, .52);
+    color: #e8f6f4;
+    font: 700 17px/1 system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2px;
+    pointer-events: auto;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+}
+.t-btn span { font-size: 10px; opacity: .62; font-weight: 500; }
+.t-btn.on {
+    background: rgba(155, 232, 224, .30);
+    border-color: rgba(155, 232, 224, .85);
+    transform: scale(.94);
+}
+/* Super sits alone on the top row — it is the one button a mis-tap wastes. */
+#t-super { grid-column: 3; grid-row: 1; }
+#t-special { grid-column: 2; grid-row: 1; }
+#t-light { grid-column: 1; grid-row: 2; }
+#t-heavy { grid-column: 2; grid-row: 2; }
+#t-low   { grid-column: 3; grid-row: 2; }
+
+/* On a touch device the keyboard hint is noise — the buttons are self-evident. */
+@media (pointer: coarse) {
+    .controls-hint { display: none; }
+}
+
+/* ===========================================================================
+   ONBOARDING + MUTE + SHARE
+   =========================================================================== */
+#howto {
+    position: fixed; inset: 0; z-index: 60;
+    display: grid; place-items: center;
+    background: rgba(6, 8, 11, .82);
+    pointer-events: auto;
+}
+#howto[hidden] { display: none; }
+.howto-card {
+    max-width: 520px; margin: 5vw;
+    padding: 26px 28px;
+    background: linear-gradient(160deg, rgba(20,24,30,.97), rgba(12,15,19,.97));
+    border: 1px solid rgba(155,232,224,.28);
+    border-radius: 14px;
+    color: #e8f6f4;
+    font: 400 15px/1.55 system-ui, sans-serif;
+    box-shadow: 0 24px 60px rgba(0,0,0,.6);
+}
+.howto-card h2 { margin: 0 0 4px; font-size: 21px; letter-spacing: .06em; }
+.howto-card .sub { opacity: .6; font-size: 12px; letter-spacing: .18em; margin-bottom: 16px; }
+.howto-row { display: flex; gap: 12px; margin: 9px 0; align-items: baseline; }
+.howto-row b {
+    flex: 0 0 108px; color: #9be8e0; font-size: 12.5px;
+    letter-spacing: .05em; text-align: right;
+}
+.howto-card button {
+    margin-top: 20px; width: 100%;
+    padding: 13px; min-height: 44px;
+    background: rgba(155,232,224,.16);
+    border: 1px solid rgba(155,232,224,.5);
+    border-radius: 8px; color: #e8f6f4;
+    font: 700 14px/1 system-ui, sans-serif; letter-spacing: .1em;
+    cursor: pointer;
+}
+.howto-card button:hover { background: rgba(155,232,224,.26); }
+
+#sound-toggle {
+    position: fixed; right: 12px; top: 12px; z-index: 55;
+    width: 40px; height: 40px; min-width: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(155,232,224,.32);
+    background: rgba(10,14,18,.55);
+    color: #cdeeea; font-size: 16px; line-height: 1;
+    pointer-events: auto; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+#sound-toggle:hover { background: rgba(155,232,224,.20); }
+
+.results-share {
+    margin-top: 10px; padding: 10px 16px; min-height: 44px;
+    background: transparent;
+    border: 1px solid rgba(155,232,224,.34);
+    border-radius: 7px; color: #cdeeea;
+    font: 600 12px/1 system-ui, sans-serif; letter-spacing: .12em;
+    cursor: pointer;
+}
+.results-share:hover { background: rgba(155,232,224,.14); }
+
+/* On a phone the top-right corner belongs to P2's health panel, which runs to
+   the screen edge — the toggle collided with it (measured at 375px). Drop it
+   into the dead band between the HUD and the stick zone. */
+@media (pointer: coarse), (max-width: 760px) {
+    #sound-toggle { top: 86px; right: 10px; }
+}
+
+/* Boot loader — shown while base.vrm (9.8MB) streams in. */
+#boot {
+    position: fixed; inset: 0; z-index: 70;
+    display: grid; place-items: center; gap: 0;
+    background: #06080b; color: #cdeeea;
+    font: 600 13px/1 system-ui, sans-serif; letter-spacing: .22em;
+    pointer-events: auto;
+    transition: opacity .45s ease;
+}
+#boot[hidden] { display: none; }
+#boot.gone { opacity: 0; pointer-events: none; }
+.boot-inner { text-align: center; }
+.boot-kanji {
+    font-size: 46px; letter-spacing: .1em; color: #9be8e0;
+    opacity: .9; margin-bottom: 18px;
+    animation: bootpulse 2.1s ease-in-out infinite;
+}
+@keyframes bootpulse { 0%,100% { opacity: .45 } 50% { opacity: 1 } }
+.boot-bar {
+    width: min(240px, 62vw); height: 3px; margin: 14px auto 10px;
+    background: rgba(155,232,224,.16); border-radius: 2px; overflow: hidden;
+}
+.boot-bar i {
+    display: block; height: 100%; width: 0%;
+    background: #9be8e0; transition: width .2s ease;
+}
+.boot-pct { font-size: 11px; opacity: .55; }
+@media (prefers-reduced-motion: reduce) { .boot-kanji { animation: none; opacity: .85 } }
+
+/* yw-202608151829-4532de */

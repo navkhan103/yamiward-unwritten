@@ -33,7 +33,9 @@ import { createTimeCtl, createKOCam } from './motionfx.js';
 import { createIntroDirector } from './introdirector.js';
 import { introLines } from './intro-lines.js';
 import { createLadder } from './ladder.js';
-import { Fighter3D, loadVRM, prefetchVRM, driveFromEngine, discoverModels, modelConfig, dressFighter, loadMocap, FIGHTER_MOTION } from './fighter3d.js';
+import { Fighter3D, loadVRM, prefetchVRM, driveFromEngine, discoverModels, modelConfig, dressFighter, loadMocap, FIGHTER_MOTION, onVRMProgress } from './fighter3d.js';
+import { audio } from './audio.js';
+import { TouchControls } from './touch.js';
 import { HitSparks } from './hitsparks.js';
 
 const FIXED_DT = 1 / 60;
@@ -533,6 +535,10 @@ let resultsShown = false;
 // play); CHANGE CHAMPION returns to select. Both tear down fully.
 // ---------------------------------------------------------------------------
 
+// Filled in by showResults; read by the share button. A share that says
+// nothing specific about YOUR run is a share nobody posts.
+let shareLine = '';
+
 function showResults(winnerDef, loserDef, winnerRounds, loserRounds) {
     const root = document.getElementById('results');
     if (!root) return;
@@ -563,6 +569,7 @@ function showResults(winnerDef, loserDef, winnerRounds, loserRounds) {
             s.wins === ladder.current?.total || s.wins >= 7 ? 'PARADE CONQUERED' : 'THE PARADE ENDS';
         document.getElementById('results-line').textContent =
             `NIGHT PARADE · ${s.wins} wins · score ${s.runScore}${s.newBest ? ' · NEW BEST' : ''}`;
+        shareLine = `I ran the Night Parade in YAMIWARD: UNWRITTEN — ${s.wins} wins, score ${s.runScore}${s.newBest ? ' (new best)' : ''}.`;
         root.style.setProperty('--accent', hex(CHARACTERS[paradePlayer]?.color ?? winnerDef.color));
         root.hidden = false;
         resultsShown = true;
@@ -573,6 +580,7 @@ function showResults(winnerDef, loserDef, winnerRounds, loserRounds) {
     document.getElementById('results-title').textContent = `${winnerDef.name} WINS`;
     document.getElementById('results-line').textContent =
         `${winnerRounds}–${loserRounds} over ${loserDef.name} · ${winnerDef.clan}`;
+    shareLine = `${winnerDef.name} (${winnerDef.clan}) took it ${winnerRounds}–${loserRounds} over ${loserDef.name} in YAMIWARD: UNWRITTEN.`;
     root.style.setProperty('--accent', hex(winnerDef.color));
     root.hidden = false;
     resultsShown = true;
@@ -597,6 +605,72 @@ function backToSelect() {
     teardownMatch();
     showSelect();
 }
+
+/**
+ * Share the finished run. Uses the native share sheet where it exists (that is
+ * mobile, which is the audience this whole pass targets) and falls back to the
+ * clipboard on desktop. Both paths are best-effort: a browser that refuses
+ * either must never throw into the match loop.
+ */
+async function shareRun() {
+    // Derived at runtime, never hardcoded: the same build is going to be served
+    // from GitHub Pages, itch.io and (eventually) a yamiward.com path, and a
+    // baked-in host would share the wrong link from two of the three. It also
+    // keeps a personal account handle out of the shipped bundle.
+    const url = location.origin + location.pathname;
+    const text = `${shareLine || 'YAMIWARD: UNWRITTEN — eight yokai bloodlines, one night.'} ${url}`;
+    const btn = document.getElementById('results-share');
+    try {
+        if (navigator.share) { await navigator.share({ title: 'YAMIWARD: UNWRITTEN', text: shareLine, url }); return; }
+        await navigator.clipboard.writeText(text);
+        if (btn) { btn.textContent = 'COPIED 完'; setTimeout(() => { btn.textContent = 'SHARE THIS RUN 共有'; }, 1800); }
+    } catch {
+        // AbortError when the user dismisses the sheet, or a clipboard denial.
+        // Neither is a failure worth surfacing.
+    }
+}
+document.getElementById('results-share')?.addEventListener('click', () => { audio.confirm(); shareRun(); });
+
+// --- sound toggle --------------------------------------------------------
+const soundBtn = document.getElementById('sound-toggle');
+function paintSound() { if (soundBtn) soundBtn.textContent = audio.muted ? '✕' : '♪'; }
+soundBtn?.addEventListener('click', () => {
+    const muted = audio.toggleMute();
+    paintSound();
+    if (!muted) { audio.unlock(); audio.tick(); }
+});
+paintSound();
+
+// --- first-run onboarding ------------------------------------------------
+// Shown once per browser. The rows are built from the ACTUAL input device, so a
+// phone player is never told to press J.
+const HOWTO_SEEN = 'yw_howto_seen';
+function showHowTo() {
+    const root = document.getElementById('howto');
+    const rows = document.getElementById('howto-rows');
+    if (!root || !rows) return;
+    const isTouch = TouchControls.wanted();
+    const spec = isTouch
+        ? [['Move', 'Drag the left side of the screen'],
+           ['Sidestep', 'Flick up or down — dodges tracking attacks'],
+           ['Crouch', 'Hold down — blocks lows, ducks highs'],
+           ['Attack', 'J light · K launcher · L low'],
+           ['Special', 'I is your clan move · U is the super'],
+           ['Block', 'Walk backward — hold away from your opponent']]
+        : [['Move', 'A / D walk · W / S sidestep'],
+           ['Crouch', 'Hold S — blocks lows, ducks highs'],
+           ['Attack', 'J light · K launcher · L low'],
+           ['Special', 'I is your clan move · U is the super'],
+           ['Block', 'Hold A — walking backward guards']];
+    rows.innerHTML = spec.map(([k, v]) => `<div class="howto-row"><b>${k}</b><span>${v}</span></div>`).join('');
+    root.hidden = false;
+}
+document.getElementById('howto-close')?.addEventListener('click', () => {
+    document.getElementById('howto').hidden = true;
+    try { localStorage.setItem(HOWTO_SEEN, '1'); } catch { /* private mode: show again, harmless */ }
+    audio.unlock(); audio.confirm(); audio.startMusic();
+});
+try { if (!localStorage.getItem(HOWTO_SEEN)) showHowTo(); } catch { showHowTo(); }
 
 document.getElementById('results-rematch')?.addEventListener('click', rematch);
 document.getElementById('results-select')?.addEventListener('click', backToSelect);
@@ -730,6 +804,9 @@ function startMatch(p1Key, p2Key, opts = {}) {
 let _modeBtnHandler = null;
 
 function showSelect() {
+    // The select screen is playable UI: once it is up, the boot overlay has
+    // done its job even if the model is still streaming in the background.
+    bootHide();
     const root = document.getElementById('select');
     const grid = document.getElementById('select-grid');
     if (!root || !grid) { startMatch('tetsuki', 'raiga'); return; }
@@ -864,7 +941,51 @@ window.addEventListener('keydown', (e) => {
     if (intro.active && e.code === 'Escape') intro.skip();
 });
 window.addEventListener('keyup', (e) => held.delete(e.code));
+// Any key is a user gesture; browsers require one before audio may start.
+window.addEventListener('keydown', () => audio.unlock(), { once: true });
 window.addEventListener('blur', () => held.clear());
+
+// ---------------------------------------------------------------------------
+// Boot loader
+// ---------------------------------------------------------------------------
+// Dismissed on the FIRST of: model download finished, or the select screen
+// being ready. Belt and braces on purpose — a visitor must never be trapped
+// behind this overlay because a fetch stalled or a header was missing.
+const bootEl = document.getElementById('boot');
+const bootFill = document.getElementById('boot-fill');
+const bootPct = document.getElementById('boot-pct');
+let bootDone = false;
+
+function bootHide() {
+    if (bootDone || !bootEl) return;
+    bootDone = true;
+    bootEl.classList.add('gone');
+    setTimeout(() => { bootEl.hidden = true; }, 500);
+}
+
+onVRMProgress((loaded, total) => {
+    if (bootDone) return;
+    if (total > 0) {
+        const pct = Math.min(100, Math.round((loaded / total) * 100));
+        if (bootFill) bootFill.style.width = pct + '%';
+        if (bootPct) bootPct.textContent = pct + '%';
+    } else {
+        // No Content-Length: show megabytes rather than a fake percentage.
+        if (bootPct) bootPct.textContent = (loaded / 1048576).toFixed(1) + ' MB';
+        if (bootFill) bootFill.style.width = '100%';
+    }
+    if (total > 0 && loaded >= total) setTimeout(bootHide, 260);
+});
+// Hard ceiling: if anything above misbehaves, the game still becomes reachable.
+setTimeout(bootHide, 20000);
+
+// Touch: created once, shown only on coarse-pointer/narrow devices. The first
+// touch also unlocks WebAudio, which browsers gate behind a user gesture.
+export const touch = new TouchControls(document.getElementById('hud'), () => audio.unlock());
+if (TouchControls.wanted()) touch.show(true);
+// Re-evaluate on rotate/resize: a phone turned to landscape, or a desktop
+// window dragged narrow, must not be left with the wrong control scheme.
+window.addEventListener('resize', () => touch.show(TouchControls.wanted()));
 
 const P1_KEYS = { back: 'KeyA', fwd: 'KeyD', stepL: 'KeyW', stepR: 'KeyS', crouch: 'KeyS', light: 'KeyJ', heavy: 'KeyK', low: 'KeyL', special: 'KeyI', super: 'KeyU' };
 const P2_KEYS = { back: 'ArrowRight', fwd: 'ArrowLeft', stepL: 'ArrowUp', stepR: 'ArrowDown', crouch: 'ArrowDown', light: 'Numpad1', heavy: 'Numpad2', low: 'Numpad3', special: 'Numpad5', super: 'Numpad0' };
@@ -942,7 +1063,7 @@ function readInput(slot) {
     if (held.has(K.low)) m |= Btn.LOW;
     if (held.has(K.special)) m |= Btn.SPECIAL;
     if (held.has(K.super)) m |= Btn.SUPER;
-    return m | padBits(slot);
+    return m | padBits(slot) | touch.bits(slot);
 }
 
 // ---------------------------------------------------------------------------
@@ -1002,6 +1123,9 @@ function handleEvents() {
                 // and stops meaning anything.
                 if (ev.move?.isSuper) { fx.flash(3); fx.speed(1.0); }
                 else if (ev.counter || dmg >= 26) fx.flash(2);
+                // Audio tier mirrors the VISUAL tier chosen just above, so the
+                // ear and the eye always agree about how big a hit was.
+                audio.hit(ev.move?.isSuper ? 'super' : (ev.counter || dmg >= 26) ? 'heavy' : 'light', !!ev.counter);
                 break;
             }
             case 'block': {
@@ -1019,6 +1143,7 @@ function handleEvents() {
                     y: 1.2,
                     z: blkPose.z + (dz / dist) * 0.25,
                 }, 'block', 0x9be8e0);
+                audio.block();
                 break;
             }
             case 'armor': {
@@ -1026,6 +1151,7 @@ function handleEvents() {
                 camRig.addShake(0.4);
                 meshes[ev.slot].userData.flash = 0.6;
                 overlay.announce('ARMOR', '鉄', 0.6);
+                audio.armor();
                 break;
             }
             case 'status': {
@@ -1034,17 +1160,18 @@ function handleEvents() {
                 else if (ev.kind === 'charge' && ev.value >= 10) overlay.announce('MAX CHARGE', '雷', 0.8);
                 break;
             }
-            case 'wallsplat': camRig.addShake(1.0); camRig.punch(0.9); overlay.announce('WALL', '壁', 0.8); timeCtl.kick('wallsplat'); break;
+            case 'wallsplat': camRig.addShake(1.0); camRig.punch(0.9); overlay.announce('WALL', '壁', 0.8); timeCtl.kick('wallsplat'); audio.slam(); break;
             case 'crush': overlay.announce(ev.kind === 'high' ? 'DUCKED' : 'HOPPED', '', 0.6); break;
-            case 'whiff': overlay.announce('SIDESTEP', '回避', 0.7); break;
-            case 'round': overlay.announce(`ROUND ${ev.round}`, '闘'); camRig.snap(); break;
-            case 'fight': overlay.announce('FIGHT', '始め'); break;
+            case 'whiff': overlay.announce('SIDESTEP', '回避', 0.7); audio.whiff(); break;
+            case 'round': overlay.announce(`ROUND ${ev.round}`, '闘'); camRig.snap(); audio.sting(); break;
+            case 'fight': overlay.announce('FIGHT', '始め'); audio.sting(true); break;
             case 'ko': {
                 overlay.announce('K.O.', '', 2.4); camRig.addShake(1); camRig.punch(1); camRig.hero(2.2); overlay.cinematic(2.6);
                 // Slow-mo + camera push toward the fallen fighter.
                 timeCtl.kick('ko');
                 const down = engine.fighters.findIndex((f) => f.health <= 0);
                 if (down >= 0) koCam.kick(meshes[down].position);
+                audio.ko();
                 break;
             }
             case 'timeout': overlay.announce('TIME', '', 2.4); break;
@@ -1450,7 +1577,7 @@ requestAnimationFrame(frame);
 // rAF) can still drive and assert the full match loop.
 window.YAMIWARD = {
     get engine() { return engine; }, get camRig() { return camRig; },
-    overlay, scene, renderer, camera, MOVES, CHARACTERS, ROSTER, RIVALS,
+    overlay, scene, renderer, camera, MOVES, CHARACTERS, ROSTER, RIVALS, touch, audio,
     get stage() { return stage; }, setStage, stageForMatch, STAGE_FOR,
     startMatch, showSelect, rematch, backToSelect, handleEvents, readInput, showResults,
     CpuBrain, CPU_LEVELS, get cpu() { return cpu; },
@@ -1463,4 +1590,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608140013-6022e3
+// yw-202608151829-4532de

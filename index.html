@@ -5,6 +5,31 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>YAMIWARD 闇区 — UNWRITTEN</title>
+
+    <!--
+      SOCIAL CARD. Without these, every link posted to TikTok's bio, Discord,
+      itch, or X rendered as a bare grey URL — the cheapest distribution loss in
+      the project. og:image points at an asset already in the deploy allowlist.
+      Absolute URLs are REQUIRED here: scrapers do not resolve relative paths.
+      NOTE: the portrait is .webp. Discord/Slack/Facebook render webp cards
+      fine; X/Twitter is inconsistent with it. If the X card ever matters,
+      export a 1200x630 JPG hero and point og:image at that instead — the
+      portrait is also portrait-aspect, which crops awkwardly in a wide card.
+    -->
+    <meta name="description" content="UNWRITTEN — a browser fighting game set in YAMIWARD 闇区. Eight yokai bloodlines, one night. Pick your champion and fight the Night Parade.">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="YAMIWARD 闇区">
+    <meta property="og:title" content="YAMIWARD: UNWRITTEN">
+    <meta property="og:description" content="Eight yokai bloodlines. One night. Fight the Night Parade in your browser.">
+    <meta property="og:url" content="https://navkhan103.github.io/yamiward-unwritten/">
+    <meta property="og:image" content="https://navkhan103.github.io/yamiward-unwritten/assets/portraits/tetsuki.webp">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="YAMIWARD: UNWRITTEN">
+    <meta name="twitter:description" content="Eight yokai bloodlines. One night. Fight the Night Parade in your browser.">
+    <meta name="twitter:image" content="https://navkhan103.github.io/yamiward-unwritten/assets/portraits/tetsuki.webp">
+    <meta name="theme-color" content="#0a0e12">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>闇</text></svg>">
+
     <link rel="stylesheet" href="./styles.css">
 
     <!--
@@ -22,7 +47,7 @@
         }
     }
     </script>
-    <meta name="yw-build" content="yw-202608140013-6022e3">
+    <meta name="yw-build" content="yw-202608151829-4532de">
 </head>
 
 <body>
@@ -109,6 +134,7 @@
                     <button id="results-rematch" class="results-btn">REMATCH <span>再戦</span></button>
                     <button id="results-select" class="results-btn alt">CHANGE CHAMPION <span>選択</span></button>
                 </div>
+                <button id="results-share" class="results-share">SHARE THIS RUN 共有</button>
                 <div class="results-hint">R rematch · Enter change champion</div>
             </div>
         </div>
@@ -129,6 +155,39 @@
             <b>P2</b> ←/→ walk · ↑/↓ sidestep · Num1/2/3 · Num5 special · Num0 super
         </div>
         <div id="debug"></div>
+    </div>
+
+    <!--
+      BOOT LOADER. base.vrm is 9.8MB; before this, that download happened behind
+      a black screen with no sign the page was alive. Markup lives in the HTML
+      (not built by JS) so it paints on the very first frame, before any module
+      has parsed.
+    -->
+    <div id="boot">
+        <div class="boot-inner">
+            <div class="boot-kanji">闇</div>
+            <div>ENTERING THE WARD</div>
+            <div class="boot-bar"><i id="boot-fill"></i></div>
+            <div class="boot-pct" id="boot-pct">summoning…</div>
+        </div>
+    </div>
+
+    <!-- ===== sound toggle — outside #hud so it is always clickable ===== -->
+    <button id="sound-toggle" aria-label="Toggle sound" title="Toggle sound">♪</button>
+
+    <!--
+      FIRST-RUN ONBOARDING. Shown once (remembered in localStorage), because the
+      only instruction the game previously gave was a single dense keyboard line
+      that a phone visitor could not even use. Controls are filled in by main.js
+      to match the actual input device.
+    -->
+    <div id="howto" hidden>
+        <div class="howto-card">
+            <h2>HOW TO FIGHT</h2>
+            <div class="sub">闇区 · UNWRITTEN</div>
+            <div id="howto-rows"></div>
+            <button id="howto-close">ENTER THE WARD 入る</button>
+        </div>
     </div>
 
     <script type="module" src="./src/main.js"></script>

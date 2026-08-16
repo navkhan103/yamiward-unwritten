@@ -19,6 +19,7 @@
  */
 import * as THREE from 'three';
 import { VRMHumanBoneName as B } from '@pixiv/three-vrm';
+import { cullSafely } from './gfxutil.js';
 
 /** Toon material that matches the cel look of the VRM itself. */
 function mat(color, { emissive = 0x000000, emissiveIntensity = 0, flat = false } = {}) {
@@ -253,7 +254,7 @@ export function attachAccessories(vrm, key, rim) {
         const obj = entry.make();
         obj.traverse((o) => {
             if (!o.isMesh) return;
-            o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
+            o.castShadow = true; o.receiveShadow = true; cullSafely(o);
             const m = o.material;
             // Only props that authored no glow of their own — an ice shard or a
             // raindrop already set theirs deliberately.

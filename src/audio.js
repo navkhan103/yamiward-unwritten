@@ -32,15 +32,33 @@ const TIER = {
     super: { gain: 0.72, thump: 44, noise: 0.130, tone: 0.26 },
 };
 
+/**
+ * Sidechain duck. The drone and the impacts previously shared one gain stage, so
+ * a super landed INTO the music instead of over it — the pad kept its full level
+ * underneath the loudest moment in the game and ate the transient. Splitting the
+ * graph into two buses lets the music step aside for a beat.
+ *
+ * `depth` is how far the music drops (0.55 = down to 45%), `hold` how long it
+ * stays there before recovering. Both in the units the ear cares about: the
+ * attack is fast enough to be under the transient, the release slow enough that
+ * the pad returning is never itself an event.
+ */
+const DUCK_ATTACK = 0.02;   // s — must beat the impact it is making room for
+const DUCK_RELEASE = 0.45;  // s — slow enough to be felt, not heard
+
 export class GameAudio {
     constructor() {
         this.ctx = null;
         this.master = null;
+        this.sfx = null;      // every impact, menu tick and sting
+        this.music = null;    // the drone bed — the only bus that ducks
         this.muted = false;
         try { this.muted = localStorage.getItem(LS_MUTE) === '1'; } catch { /* private mode */ }
         this._noise = null;
         this._musicGain = null;
         this._musicNodes = [];
+        this._duckDepth = 0;  // depth of the duck currently in flight
+        this._duckEnd = 0;    // ctx time it finishes recovering
     }
 
     /**
@@ -56,6 +74,15 @@ export class GameAudio {
             this.master = this.ctx.createGain();
             this.master.gain.value = 0.9;
             this.master.connect(this.ctx.destination);
+            // Two buses under the master. Both sit at unity: they exist to be
+            // automated relative to each other, not to set levels — the levels
+            // stay in the individual sounds where they are tuned.
+            this.sfx = this.ctx.createGain();
+            this.sfx.gain.value = 1;
+            this.sfx.connect(this.master);
+            this.music = this.ctx.createGain();
+            this.music.gain.value = 1;
+            this.music.connect(this.master);
             this._buildNoise();
         }
         if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
@@ -92,7 +119,7 @@ export class GameAudio {
         g.gain.setValueAtTime(0, t);
         g.gain.linearRampToValueAtTime(gain, t + 0.004);       // near-instant attack
         g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-        src.connect(f).connect(g).connect(this.master);
+        src.connect(f).connect(g).connect(this.sfx);
         src.start(t); src.stop(t + dur + 0.02);
     }
 
@@ -107,8 +134,46 @@ export class GameAudio {
         g.gain.setValueAtTime(0, t);
         g.gain.linearRampToValueAtTime(gain, t + 0.006);
         g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-        o.connect(g).connect(this.master);
+        o.connect(g).connect(this.sfx);
         o.start(t); o.stop(t + dur + 0.02);
+    }
+
+    /**
+     * Pull the music bus down to make room for an impact, then let it back.
+     *
+     * COMBOS ARE THE HARD CASE. A ten-hit string fires ten ducks inside a
+     * second, and the naive version — cancel, dip, recover — restarts the
+     * recovery on every hit, so the pad pumps like a broken compressor. Worse,
+     * a light hit landing during a super's duck would drag the music back UP
+     * from under the super.
+     *
+     * So a new duck never weakens the one in flight: it takes the DEEPER of the
+     * two depths and the LATER of the two end times. A light hit inside a
+     * super's window is absorbed rather than obeyed, and the pad makes exactly
+     * one smooth move per exchange.
+     *
+     * Reading `.value` and re-anchoring with setValueAtTime is the portable form
+     * of cancel-and-hold; `cancelAndHoldAtTime` is not reliable on Safari, which
+     * is half the mobile audience this whole pass was built for.
+     */
+    _duck(depth, hold) {
+        const bus = this.music;
+        if (!bus) return;
+        const t = this._t;
+        const live = t < this._duckEnd;
+        const d = live ? Math.max(depth, this._duckDepth) : depth;
+        const end = live ? Math.max(t + hold + DUCK_RELEASE, this._duckEnd) : t + hold + DUCK_RELEASE;
+        const floor = Math.max(0, 1 - d);
+        const g = bus.gain;
+        try {
+            g.cancelScheduledValues(t);
+            g.setValueAtTime(g.value, t);
+            g.linearRampToValueAtTime(floor, t + DUCK_ATTACK);
+            g.setValueAtTime(floor, Math.max(end - DUCK_RELEASE, t + DUCK_ATTACK));
+            g.linearRampToValueAtTime(1, end);
+        } catch { return; }   // context closed mid-match: silence, never a throw
+        this._duckDepth = d;
+        this._duckEnd = end;
     }
 
     // -----------------------------------------------------------------------
@@ -116,6 +181,9 @@ export class GameAudio {
     // stack of effects — see game-feel doctrine: one impact is many small
     // responses firing together inside ~100ms.
     // -----------------------------------------------------------------------
+
+    /** How far each tier pushes the music aside: [depth, hold seconds]. */
+    static DUCK = { light: null, heavy: [0.35, 0.06], super: [0.62, 0.30] };
 
     /** @param {'light'|'heavy'|'super'} tier */
     hit(tier = 'light', counter = false) {
@@ -126,6 +194,11 @@ export class GameAudio {
         // A counter-hit gets a bright metallic ping on top — the audio
         // equivalent of the COUNTER banner, so it registers without reading.
         if (counter) this._thump(0.16, 1180, 760, 0.16, 'triangle');
+        // Light hits do NOT duck. They are the texture of a normal exchange, and
+        // a pad that flinches at every jab stops meaning anything when the
+        // launcher lands.
+        const d = GameAudio.DUCK[tier];
+        if (d) this._duck(d[0], d[1]);
     }
 
     block() {
@@ -151,6 +224,7 @@ export class GameAudio {
         if (!this.unlock()) return;
         this._burst(0.13, 480, 0.16, 'lowpass', 0.8);
         this._thump(0.30, 110, 38, 0.55);
+        this._duck(0.45, 0.12);          // a wall splat owns the room for a moment
     }
 
     /** KO — the one sound allowed to be big. */
@@ -161,6 +235,9 @@ export class GameAudio {
         // Struck-bell tail: two detuned partials, the ward's signature.
         this._thump(1.30, 460, 300, 0.14, 'triangle');
         this._thump(1.30, 690, 452, 0.08, 'triangle');
+        // The bell tail is the longest sound in the game; the pad stays out of
+        // its way for the whole ring rather than crowding the decay.
+        this._duck(0.75, 1.10);
     }
 
     /** Round start / announce sting. */
@@ -188,6 +265,7 @@ export class GameAudio {
         if (!this.unlock()) return;
         this._thump(0.55, 180, 900, 0.30, 'sawtooth');
         this._burst(0.40, 2200, 0.10, 'highpass', 0.6);
+        this._duck(0.70, 0.55);          // the activation flourish, uncontested
     }
 
     /**
@@ -213,7 +291,7 @@ export class GameAudio {
         this._musicGain = this.ctx.createGain();
         this._musicGain.gain.setValueAtTime(0, t);
         this._musicGain.gain.linearRampToValueAtTime(0.055, t + 2.5);  // slow fade-in
-        this._musicGain.connect(this.master);
+        this._musicGain.connect(this.music);
         for (const [freq, detune] of [[55, -4], [82.4, 5], [110, 0]]) {
             const o = this.ctx.createOscillator();
             o.type = 'sine'; o.frequency.value = freq; o.detune.value = detune;
@@ -230,6 +308,23 @@ export class GameAudio {
     }
 
     stopMusic() {
+        // Clear any duck in flight FIRST, before the early return below.
+        // A unit test caught this: the reset originally sat at the end of the
+        // method, which `if (!this._musicGain) return` makes unreachable in
+        // exactly the case that needs it — a KO ducks the bus, the player mutes
+        // (or music was never started), and _duckEnd is left sitting in the
+        // future holding the bus down for a sound that has already finished.
+        // The duck lives on the music BUS, which outlives any one track, so
+        // clearing it cannot depend on a track existing.
+        this._duckDepth = 0;
+        this._duckEnd = 0;
+        if (this.music) {
+            try {
+                this.music.gain.cancelScheduledValues(this._t);
+                this.music.gain.value = 1;
+            } catch { /* context closed */ }
+        }
+
         if (!this._musicGain) return;
         const t = this._t;
         try {

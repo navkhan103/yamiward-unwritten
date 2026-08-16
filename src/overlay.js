@@ -41,6 +41,15 @@ export class Overlay {
         this._storyQueue = [];
         this._typing = null;
         this._onStoryDone = null;
+        // VN conveniences. backlog is a ring buffer of committed lines; the rest
+        // are player settings storyMode reads back when it saves.
+        this.backlog = [];
+        this._storyCursor = 0;
+        this._onStoryLine = null;
+        this._textSpeed = 18;
+        this._auto = false;
+        this._skip = false;
+        this._autoTimer = null;
 
         this.el.storyNext?.addEventListener('click', () => this.advanceStory());
         window.addEventListener('keydown', (e) => {
@@ -163,11 +172,20 @@ export class Overlay {
 
     /**
      * @param {Array<{speaker:string, kanji?:string, text:string, color?:string}>} lines
+     * @param {{startAt?:number, onLine?:(index:number, line:object)=>void}} [opts]
+     *   startAt — resume mid-block after a load. A VN save has to restore the exact
+     *   line, not the top of the scene (see the save-anywhere rule): storyMode
+     *   persists the cursor this reports and hands it straight back here.
+     *   onLine  — fires as each line is COMMITTED to the box, which is both the
+     *   backlog feed and the save cursor. One callback covers both because they
+     *   want the identical moment.
      * @returns {Promise<void>} resolves when the player has read them all
      */
-    playStory(lines) {
+    playStory(lines, opts = {}) {
         return new Promise((resolve) => {
-            this._storyQueue = lines.slice();
+            this._storyCursor = opts.startAt || 0;
+            this._storyQueue = lines.slice(this._storyCursor);
+            this._onStoryLine = opts.onLine || null;
             this._onStoryDone = resolve;
             this.el.story.hidden = false;
             this.el.root.classList.add('story-mode');
@@ -175,7 +193,23 @@ export class Overlay {
         });
     }
 
+    /** ms per character. 0 = instant. Player setting; skip drives it to 0. */
+    setTextSpeed(ms) { this._textSpeed = Math.max(0, ms | 0); }
+    /** Hands-free reading. Cancelled by any manual advance. */
+    setAuto(on) { this._auto = !!on; if (!on) this._clearAuto(); }
+    /**
+     * Fast-forward. Deliberately NOT gated on seen-text: this game's story mode
+     * is one pass per route with no unlockable re-reads, so a seen-only skip
+     * would do nothing on a first play and confuse anyone who pressed it. If
+     * replayable routes ever ship, gate it then — the backlog already gives us
+     * the seen set to gate on.
+     */
+    setSkip(on) { this._skip = !!on; if (on && this.storyActive) this.advanceStory(); }
+
+    _clearAuto() { if (this._autoTimer) { clearTimeout(this._autoTimer); this._autoTimer = null; } }
+
     advanceStory() {
+        this._clearAuto();
         // A tap while typing should complete the line, not skip it — anything
         // else feels like the game stole your input.
         if (this._typing) {
@@ -183,6 +217,7 @@ export class Overlay {
             this.el.storyText.textContent = this._typing.full;
             this._typing = null;
             this.el.storyNext.classList.add('ready');
+            this._armAuto();
             return;
         }
         const line = this._storyQueue.shift();
@@ -191,9 +226,19 @@ export class Overlay {
             this.el.root.classList.remove('story-mode');
             const done = this._onStoryDone;
             this._onStoryDone = null;
+            this._onStoryLine = null;
             if (done) done();
             return;
         }
+
+        // Committed: this line is now the resume point and the newest backlog
+        // entry. Cap the buffer — an unbounded history across a six-chapter
+        // route is a slow leak nobody would ever look at the far end of.
+        this.backlog.push(line);
+        if (this.backlog.length > 200) this.backlog.shift();
+        if (this._onStoryLine) this._onStoryLine(this._storyCursor, line);
+        this._storyCursor += 1;
+
         this.el.storyName.textContent = line.speaker;
         this.el.storyPortrait.textContent = line.kanji || '闇';
         this.el.story.style.setProperty('--speaker-color', line.color || '#9BE8E0');
@@ -201,6 +246,16 @@ export class Overlay {
 
         // typewriter
         const full = line.text;
+        const rate = this._skip ? 0 : (this._textSpeed ?? 18);
+        if (rate === 0) {
+            this.el.storyText.textContent = full;
+            this._typing = null;
+            this.el.storyNext.classList.add('ready');
+            // Skip must not recurse: a 200-line block would blow the stack.
+            if (this._skip) this._autoTimer = setTimeout(() => this.advanceStory(), 0);
+            else this._armAuto();
+            return;
+        }
         this.el.storyText.textContent = '';
         let i = 0;
         const handle = setInterval(() => {
@@ -210,9 +265,17 @@ export class Overlay {
                 clearInterval(handle);
                 this._typing = null;
                 this.el.storyNext.classList.add('ready');
+                this._armAuto();
             }
-        }, 18);
+        }, rate);
         this._typing = { handle, full };
+    }
+
+    /** Auto-advance scaled to line length, so long lines get longer to read. */
+    _armAuto() {
+        if (!this._auto || this._skip) return;
+        const len = this.el.storyText.textContent.length;
+        this._autoTimer = setTimeout(() => this.advanceStory(), 900 + len * 28);
     }
 
     /**
@@ -225,6 +288,8 @@ export class Overlay {
      */
     closeStory() {
         if (this._typing) { clearInterval(this._typing.handle); this._typing = null; }
+        this._clearAuto();
+        this._onStoryLine = null;
         this._storyQueue = [];
         this.el.story.hidden = true;
         this.el.root.classList.remove('story-mode');

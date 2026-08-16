@@ -403,6 +403,7 @@ html, body {
     font-size: 0.6rem;
     letter-spacing: 0.06em;
     color: rgba(155, 232, 224, 0.4);
+    white-space: pre-line;   /* lets the perf-hud line (Backquote) break onto its own line */
 }
 
 #hud.story-mode .controls-hint,
@@ -875,4 +876,4 @@ html, body {
 .boot-pct { font-size: 11px; opacity: .55; }
 @media (prefers-reduced-motion: reduce) { .boot-kanji { animation: none; opacity: .85 } }
 
-/* yw-202608151829-4532de */
+/* yw-202608160312-608dac */

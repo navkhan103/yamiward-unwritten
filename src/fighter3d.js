@@ -20,6 +20,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils, VRMHumanBoneName as B } from '@pixiv/three-vrm';
 import { attachAccessories } from './accessories.js';
 import { attachGarments } from './garments.js';
+import { cullSafely } from './gfxutil.js';
 import { loadClipBundle, ClipPlayer } from './anim.js';
 
 // The baked mocap bundle, fetched once per session. A missing bundle is not an
@@ -116,8 +117,16 @@ export async function loadVRM(url) {
     VRMUtils.rotateVRM0(vrm);   // VRM0 faces -Z; normalise to +Z like VRM1
 
     vrm.scene.traverse((o) => {
-        o.frustumCulled = false;
-        if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+        if (!o.isMesh) return;
+        o.castShadow = true; o.receiveShadow = true;
+        // This is a real SkinnedMesh (bone weights, not a rigid prop parented
+        // to a bone like garments/accessories) — Three only auto-tracks a
+        // mesh's REST-POSE bounding sphere through matrixWorld, it does not
+        // re-derive bounds from the deformed/posed vertices each frame. A
+        // punch or kick can reach well past the rest-pose silhouette, so this
+        // needs a much bigger safety margin than a rigid prop does, or a
+        // wide swing would clip through the frustum edge and pop.
+        cullSafely(o, 1.2);
     });
     return vrm;
 }

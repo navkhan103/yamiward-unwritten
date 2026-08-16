@@ -26,6 +26,7 @@
  */
 import * as THREE from 'three';
 import { VRMHumanBoneName as B } from '@pixiv/three-vrm';
+import { cullSafely } from './gfxutil.js';
 
 /** Cel material matching the VRM's toon look. */
 function mat(color, { flat = false, emissive = 0x000000, emissiveIntensity = 0 } = {}) {
@@ -57,7 +58,7 @@ function skirt({ len, topR, botR, panels = 8, gap = 0.18, color, y = 0 }) {
         );
         geo.translate(0, -len / 2 + y, 0);
         const m = new THREE.Mesh(geo, material);
-        m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false;
+        m.castShadow = true; m.receiveShadow = true; cullSafely(m);
         g.add(m);
     }
     return g;
@@ -73,7 +74,7 @@ function haori({ len = 0.30, r = 0.135, color, flare = 1.18 }) {
             side > 0 ? 0.34 : Math.PI + 0.06, Math.PI - 0.40);
         geo.translate(0, -len / 2 + 0.06, 0);
         const m = new THREE.Mesh(geo, material);
-        m.castShadow = true; m.frustumCulled = false;
+        m.castShadow = true; cullSafely(m);
         g.add(m);
     }
     return g;
@@ -83,7 +84,7 @@ function haori({ len = 0.30, r = 0.135, color, flare = 1.18 }) {
 function pauldron({ r = 0.085, color }) {
     const geo = new THREE.SphereGeometry(r, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.55);
     const m = new THREE.Mesh(geo, mat(color));
-    m.castShadow = true; m.frustumCulled = false;
+    m.castShadow = true; cullSafely(m);
     return m;
 }
 
@@ -101,7 +102,7 @@ function sleeve({ len = 0.22, r0 = 0.06, r1 = 0.13, color }) {
     const geo = new THREE.CylinderGeometry(r0, r1, len, 6, 1, true);
     geo.translate(0, -len / 2, 0);
     const m = new THREE.Mesh(geo, mat(color, { flat: true }));
-    m.castShadow = true; m.frustumCulled = false;
+    m.castShadow = true; cullSafely(m);
     return m;
 }
 
@@ -126,7 +127,7 @@ function aimAtChild(obj, bone, child) {
 function sash({ r = 0.115, h = 0.075, color }) {
     const geo = new THREE.CylinderGeometry(r, r * 1.02, h, 10, 1, true);
     const m = new THREE.Mesh(geo, mat(color, { flat: true }));
-    m.castShadow = true; m.frustumCulled = false;
+    m.castShadow = true; cullSafely(m);
     return m;
 }
 
@@ -134,7 +135,7 @@ function sash({ r = 0.115, h = 0.075, color }) {
 function collar({ r = 0.075, h = 0.10, color }) {
     const geo = new THREE.CylinderGeometry(r * 1.25, r, h, 8, 1, true, Math.PI * 0.15, Math.PI * 1.7);
     const m = new THREE.Mesh(geo, mat(color, { flat: true }));
-    m.castShadow = true; m.frustumCulled = false;
+    m.castShadow = true; cullSafely(m);
     return m;
 }
 
@@ -238,7 +239,7 @@ export function attachGarments(vrm, key, rim) {
         else if (entry.rot) obj.rotation.set(entry.rot[0], entry.rot[1], entry.rot[2]);
         obj.traverse((o) => {
             if (!o.isMesh) return;
-            o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
+            o.castShadow = true; o.receiveShadow = true; cullSafely(o);
             // Same trick accessories use: a low clan emissive lifts untextured
             // cloth off a night backdrop without the white blowout that killed
             // the first pass at pale colours plus bloom.

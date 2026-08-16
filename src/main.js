@@ -33,6 +33,9 @@ import { createTimeCtl, createKOCam } from './motionfx.js';
 import { createIntroDirector } from './introdirector.js';
 import { introLines } from './intro-lines.js';
 import { createLadder } from './ladder.js';
+import { createStoryMode, STORY_ROUTES } from './storyMode.js';
+import { EclipsedBrain } from './eclipsedBrain.js';
+import { MoonlessBrain } from './moonlessBrain.js';
 import { Fighter3D, loadVRM, prefetchVRM, driveFromEngine, discoverModels, modelConfig, dressFighter, loadMocap, FIGHTER_MOTION, onVRMProgress } from './fighter3d.js';
 import { audio } from './audio.js';
 import { TouchControls } from './touch.js';
@@ -48,7 +51,14 @@ const canvas = document.getElementById('game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));   // cap: 3x DPR on mobile murders fill rate
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// PCFSoftShadowMap widens the sampling kernel for softer edges — the most
+// expensive of Three's built-in filters. PCFShadowMap keeps real filtering
+// (no aliasing regression) at a fraction of the sample cost; at this map's
+// ~51 texels/unit (see budget note below) the softness difference isn't
+// visible at combat-camera distance. Drop to BasicShadowMap (hard edges,
+// cheapest) if profiling still shows this as a bottleneck after the culling
+// fix below.
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -73,6 +83,12 @@ const intro = createIntroDirector();
 // NIGHT PARADE ladder run (see src/ladder.js). One player, the field in
 // seeded order, score chase; parade matches force a CPU opponent.
 const ladder = createLadder(ROSTER);
+
+// STORY MODE. Walks the authored graph in story/index.js; see src/storyMode.js
+// for the route rules and the stand-in fight cast. Like the ladder it owns its
+// own cursor and is driven from showResults() when a bout ends.
+const story = createStoryMode(ROSTER);
+let storyPrevP2Mode = null;
 let paradePlayer = null;
 let paradePrevP2Mode = null;
 
@@ -539,9 +555,67 @@ let resultsShown = false;
 // nothing specific about YOUR run is a share nobody posts.
 let shareLine = '';
 
+/**
+ * The story pump. Reads one beat at a time and either plays it or hands control
+ * to a match; a fight beat RETURNS, and control comes back through showResults()
+ * → story.reportMatch() → here. That is the same shape the ladder uses, and it
+ * is why this is not one long async function: a match is not awaitable, it is a
+ * mode the whole app enters.
+ */
+async function runStory() {
+    while (story.active) {
+        const beat = story.next();
+
+        if (beat.kind === 'lines') {
+            await overlay.playStory(beat.lines, { startAt: beat.startAt, onLine: beat.onLine });
+            story.finishLines();
+            continue;
+        }
+
+        if (beat.kind === 'fight') {
+            p2Mode = beat.mode;
+            teardownMatch();
+            // skipIntro: the chapter's own lines ARE the pre-fight scene. Running
+            // introFor() on top would play a second, contradicting showdown.
+            startMatch(story.route, beat.opponentKey, { skipIntro: true });
+            return;
+        }
+
+        if (beat.kind === 'end') {
+            const root = document.getElementById('results');
+            if (root) {
+                document.getElementById('results-kanji').textContent = '終';
+                document.getElementById('results-title').textContent = 'THE COUNT IS NOT FINISHED';
+                document.getElementById('results-line').textContent =
+                    `${(CHARACTERS[beat.route]?.name ?? beat.route).toUpperCase()} · route complete`;
+                root.style.setProperty('--accent', hex(CHARACTERS[beat.route]?.color ?? 0x9BE8E0));
+                root.hidden = false;
+                resultsShown = true;
+            }
+            story.clear();
+            if (storyPrevP2Mode) { p2Mode = storyPrevP2Mode; storyPrevP2Mode = null; }
+            return;
+        }
+        return;
+    }
+}
+
 function showResults(winnerDef, loserDef, winnerRounds, loserRounds) {
     const root = document.getElementById('results');
     if (!root) return;
+
+    // STORY MODE: a win advances the graph and the next beat plays immediately;
+    // a loss re-runs the same fight. The story does not branch on losing — the
+    // chapter after it assumes you won, so anything else desyncs the script.
+    if (story.active && engine) {
+        const playerWon = engine.winner === 1;
+        const res = story.reportMatch({ won: playerWon });
+        teardownMatch();
+        if (res.advanced) { runStory(); return; }
+        overlay.announce('AGAIN', '再', 1.4);
+        startMatch(story.route, story.current.opponentKey, { skipIntro: true });
+        return;
+    }
 
     // NIGHT PARADE: mid-run wins chain straight into the next bout (no card,
     // no intro); the card appears only when the run ends, repurposed as the
@@ -607,27 +681,71 @@ function backToSelect() {
 }
 
 /**
- * Share the finished run. Uses the native share sheet where it exists (that is
- * mobile, which is the audience this whole pass targets) and falls back to the
- * clipboard on desktop. Both paths are best-effort: a browser that refuses
- * either must never throw into the match loop.
+ * Share the finished run — native sheet, then clipboard, then a copy the player
+ * can select by hand. Every step is best-effort and none may throw into the
+ * match loop.
+ *
+ * The cascade is not defensive padding, it is the itch.io embed. A game inside
+ * a cross-origin iframe gets `navigator.share` and `navigator.clipboard` on the
+ * object but BOTH reject unless the host frame grants `web-share` /
+ * `clipboard-write`, which itch does not. A single try/catch around the pair
+ * therefore swallowed the rejection and left the button doing visibly nothing
+ * on the one platform this build was made for. Each tier now catches its own
+ * failure and hands off to the next.
+ *
+ * A dismissed share sheet (AbortError) is the player saying no — it ends the
+ * cascade rather than falling through to a copy they did not ask for.
  */
+function shareFallback(text, btn) {
+    // execCommand is deprecated but is the only copy path that survives inside a
+    // cross-origin iframe without a permission grant. If even that fails we stop
+    // pretending: put the text on screen so it can be selected by hand.
+    try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        ta.remove();
+        if (ok) return 'COPIED 完';
+    } catch { /* fall through to the manual path */ }
+    const box = document.getElementById('results-line');
+    if (box) box.textContent = text;
+    return 'COPY THE LINE ABOVE';
+}
+
 async function shareRun() {
-    // Derived at runtime, never hardcoded: the same build is going to be served
-    // from GitHub Pages, itch.io and (eventually) a yamiward.com path, and a
-    // baked-in host would share the wrong link from two of the three. It also
-    // keeps a personal account handle out of the shipped bundle.
-    const url = location.origin + location.pathname;
+    // Runtime-derived by default: one build is served from GitHub Pages, itch.io
+    // and (eventually) a yamiward.com path, and a baked-in host would share the
+    // wrong link from two of the three. YW_SHARE_URL is the exception — inside
+    // an itch iframe `location` is html-classic.itch.zone, a URL that is useless
+    // to whoever receives the share, so the itch packager injects the real page.
+    const url = window.YW_SHARE_URL || (location.origin + location.pathname);
     const text = `${shareLine || 'YAMIWARD: UNWRITTEN — eight yokai bloodlines, one night.'} ${url}`;
     const btn = document.getElementById('results-share');
-    try {
-        if (navigator.share) { await navigator.share({ title: 'YAMIWARD: UNWRITTEN', text: shareLine, url }); return; }
-        await navigator.clipboard.writeText(text);
-        if (btn) { btn.textContent = 'COPIED 完'; setTimeout(() => { btn.textContent = 'SHARE THIS RUN 共有'; }, 1800); }
-    } catch {
-        // AbortError when the user dismisses the sheet, or a clipboard denial.
-        // Neither is a failure worth surfacing.
+    const flash = (label) => {
+        if (!btn) return;
+        btn.textContent = label;
+        setTimeout(() => { btn.textContent = 'SHARE THIS RUN 共有'; }, 2200);
+    };
+
+    if (navigator.share) {
+        try {
+            await navigator.share({ title: 'YAMIWARD: UNWRITTEN', text: shareLine, url });
+            return;
+        } catch (e) {
+            if (e?.name === 'AbortError') return;   // player dismissed — done
+            // NotAllowedError inside an iframe, or no share target: keep going.
+        }
     }
+    try {
+        await navigator.clipboard.writeText(text);
+        flash('COPIED 完');
+        return;
+    } catch { /* blocked in iframe / insecure context — last tier */ }
+    flash(shareFallback(text, btn));
 }
 document.getElementById('results-share')?.addEventListener('click', () => { audio.confirm(); shareRun(); });
 
@@ -718,7 +836,13 @@ function startMatch(p1Key, p2Key, opts = {}) {
 
     currentMatch = { p1: p1Key, p2: p2Key };
     const P1_DEF = CHARACTERS[p1Key];
-    const P2_DEF = CHARACTERS[p2Key];
+    // An Eclipsed leftover borrows a champion's kit but is not that champion:
+    // EclipsedBrain.defFor applies the encounter's resilience, and returns the
+    // def untouched for every fighter that does not need one — so versus and the
+    // ladder are byte-identical to before.
+    const P2_DEF = p2Mode.startsWith('eclipsed:')
+        ? EclipsedBrain.defFor(p2Mode.split(':')[1], CHARACTERS)
+        : CHARACTERS[p2Key];
 
     // `?stage=<id>` pins one arena for QA and for shooting stills; without it
     // the matchup decides (see stageForMatch — rivals fight at the away gate).
@@ -748,7 +872,14 @@ function startMatch(p1Key, p2Key, opts = {}) {
     // is load-bearing rather than a micro-optimisation.
     meshCompile = Promise.all(meshes.map(compileSubtree));
 
-    engine = new CombatEngine(P1_DEF, P2_DEF, { moves: MOVES, seed: 0xBEEF, roundSeconds: 60 });
+    // Meter drain is move DATA, not a brain reaching into the sim: the engine
+    // already applies meterGainDefender to whoever eats a hit, so the Moonless
+    // ships a copy of the map with his own moves flipped negative. MOVES itself
+    // is never mutated — versus and the ladder read the same object.
+    const moveTable = p2Mode.startsWith('moonless:')
+        ? MoonlessBrain.movesFor(MOVES, p2Key, Number(p2Mode.split(':')[1]) === 2 ? 2 : 1)
+        : MOVES;
+    engine = new CombatEngine(P1_DEF, P2_DEF, { moves: moveTable, seed: 0xBEEF, roundSeconds: 60 });
 
     // Seed interpolation state so the first render frame has valid prev/curr.
     for (let i = 0; i < 2; i++) {
@@ -764,7 +895,14 @@ function startMatch(p1Key, p2Key, opts = {}) {
     window.__yw = { meshes, engine, scene, camera, renderer, fx, intro, overlay, camRig: () => camRig, pump: (n = 1, dtMs = 16.67) => { let t = performance.now(); for (let i = 0; i < n; i++) { t += dtMs; frame(t); } } };
     // The CPU is an input source, not an engine feature: it emits the same
     // bitmasks a pad does, so replays and future netplay are unaffected.
-    cpu = p2Mode.startsWith('cpu:') ? new CpuBrain(1, p2Mode.split(':')[1]) : null;
+    // Input sources are interchangeable: anything with bits(engine) drives a
+    // fighter, so an Eclipsed leftover is a different BRAIN rather than a
+    // difficulty or an engine branch. `eclipsed:<key>` is the story's mode
+    // string for the rescue fights.
+    cpu = p2Mode.startsWith('moonless:') ? new MoonlessBrain(1, Number(p2Mode.split(':')[1]) === 2 ? 2 : 1)
+        : p2Mode.startsWith('eclipsed:') ? new EclipsedBrain(1, p2Mode.split(':')[1])
+        : p2Mode.startsWith('cpu:') ? new CpuBrain(1, p2Mode.split(':')[1])
+        : null;
     camRig = new TekkenCamera(camera, { keepP1Left: true });
     camRig.setFighters(meshes[0], meshes[1]);
 
@@ -870,6 +1008,53 @@ function showSelect() {
             startMatch(player, ladder.current.opponentKey);
         });
         modeBtn.parentElement?.appendChild(pb);
+
+        // STORY MODE. Built here rather than in index.html for the same reason
+        // the parade button is: the label depends on save state, which only the
+        // running app knows.
+        //
+        // `story.available` is false when this build shipped without the authored
+        // script — deploy.mjs can stub story-data.js out when the reveal gate is
+        // still closed (see RELEASE-CHECKLIST RULE 0). Offering a STORY button
+        // that opens an empty run is worse than not offering one, so the entry
+        // point follows the data. Nothing else changes; the mode is intact and
+        // returns the moment the script ships.
+        if (story.available) {
+        const sb = document.createElement('button');
+        sb.className = modeBtn.className;
+        sb.id = 'select-story';
+        const hasSave = story.hasSave();
+        sb.textContent = hasSave ? 'STORY 物語 · CONTINUE' : 'STORY 物語';
+        sb.addEventListener('click', () => {
+            const player = ROSTER[cursor] ?? 'tetsuki';
+
+            if (hasSave) {
+                const loaded = story.load();
+                if (loaded.ok) {
+                    storyPrevP2Mode = p2Mode;
+                    root.hidden = true;
+                    runStory();
+                    return;
+                }
+                // A save written against an older script cannot be trusted to
+                // resume into the right scene, so it is dropped rather than
+                // guessed at. Say so — a silently discarded save is worse.
+                story.clear();
+                overlay.announce('SAVE RETIRED', '書', 2.2);
+            }
+
+            const begun = story.begin(player);
+            if (!begun.ok) {
+                overlay.announce('NO ROUTE', '無', 2.6);
+                console.warn(`[story] ${begun.reason}`);
+                return;
+            }
+            storyPrevP2Mode = p2Mode;
+            root.hidden = true;
+            runStory();
+        });
+        modeBtn.parentElement?.appendChild(sb);
+        }
     }
 
     grid.innerHTML = '';
@@ -929,9 +1114,41 @@ function showSelect() {
 // steps. Getting this right is most of why the game feels like Tekken.
 
 const held = new Set();
+
+// Sub-frame press capture. `held` is a LEVEL signal sampled inside the fixed
+// 60Hz accumulator, so a tap that begins and ends between two sim steps never
+// appears in `raw` at all — and CombatEngine.control() derives every attack
+// from `raw & ~prevInput`, so a press it never sees can never reach the
+// engine's own 6-frame bufferedBtn window. That is a silently eaten input, and
+// it gets worse the higher the display refresh (at 144Hz a crisp 10ms jab can
+// land entirely inside one render frame). Each keydown is therefore carried
+// for a couple of SIM frames so it survives to at least one sample.
+//
+// Carried presses feed attack buttons ONLY. Directions are holds and the
+// sidestep keys already rising-edge through tapState; carrying either would
+// invent movement the player never asked for.
+//
+// This cannot double-fire: the engine edges on `raw & ~prevInput`, so a bit
+// held across two frames still produces exactly one press. Ticked per sim
+// step (never per rAF), so replays and tools/*-harness pumps stay
+// deterministic.
+const PRESS_CARRY_FRAMES = 2;
+const pendingPress = new Map();   // e.code -> sim frames remaining
+
+/** Attack-button test: physically held now, or pressed since the last sim step. */
+function pressedNow(code) { return held.has(code) || pendingPress.has(code); }
+
+/** Age the carry queue. Called once per sim step, after BOTH slots have read. */
+function tickPressCarry() {
+    for (const [code, n] of pendingPress) {
+        if (n <= 1) pendingPress.delete(code); else pendingPress.set(code, n - 1);
+    }
+}
+
 window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     held.add(e.code);
+    pendingPress.set(e.code, PRESS_CARRY_FRAMES);
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
     // Escape is the deliberate, unambiguous "skip the showdown" input — a
     // gameplay key (J/K/WASD) doing the same was tried and reverted: an
@@ -939,11 +1156,17 @@ window.addEventListener('keydown', (e) => {
     // never chose to skip, which read as broken rather than responsive.
     // Space/Enter still advance a line one at a time via the overlay.
     if (intro.active && e.code === 'Escape') intro.skip();
+    // Backquote: toggle the frame-time breakdown under the compact fps
+    // readout. Unbound elsewhere (WASD/JKL/Escape/Space/Enter are all
+    // spoken for) and matches the dev-console convention.
+    if (e.code === 'Backquote') perfHudOn = !perfHudOn;
 });
 window.addEventListener('keyup', (e) => held.delete(e.code));
 // Any key is a user gesture; browsers require one before audio may start.
 window.addEventListener('keydown', () => audio.unlock(), { once: true });
-window.addEventListener('blur', () => held.clear());
+// Alt-tab drops keyup, so both the level state and any carried press must go —
+// otherwise a queued jab fires the instant focus returns.
+window.addEventListener('blur', () => { held.clear(); pendingPress.clear(); });
 
 // ---------------------------------------------------------------------------
 // Boot loader
@@ -1058,11 +1281,13 @@ function readInput(slot) {
         if (down && prev > 8 && key === K.crouch) m |= Btn.CROUCH;   // held = crouch
     }
 
-    if (held.has(K.light)) m |= Btn.LIGHT;
-    if (held.has(K.heavy)) m |= Btn.HEAVY;
-    if (held.has(K.low)) m |= Btn.LOW;
-    if (held.has(K.special)) m |= Btn.SPECIAL;
-    if (held.has(K.super)) m |= Btn.SUPER;
+    // Attacks read through pressedNow(), so a tap shorter than one sim frame
+    // still lands. Directions above stay on raw `held` — see PRESS_CARRY_FRAMES.
+    if (pressedNow(K.light)) m |= Btn.LIGHT;
+    if (pressedNow(K.heavy)) m |= Btn.HEAVY;
+    if (pressedNow(K.low)) m |= Btn.LOW;
+    if (pressedNow(K.special)) m |= Btn.SPECIAL;
+    if (pressedNow(K.super)) m |= Btn.SUPER;
     return m | padBits(slot) | touch.bits(slot);
 }
 
@@ -1252,6 +1477,13 @@ function syncMeshes(dt) {
             continue;
         }
 
+        // Neither model path has landed yet (async load still in flight) and
+        // there's no legacy placeholder mesh either — nothing to pose this
+        // frame. Without this guard a match simulated before load finishes
+        // (e.g. skipIntro chaining straight into combat) crashes here on
+        // ud.torso being undefined.
+        if (!ud.torso) continue;
+
         // face the opponent; +1 faces +x. Facing is discrete (binary) —
         // lerping it would produce a one-frame twist, so we use curr directly.
         g.rotation.y = vp.facing === 1 ? 0 : Math.PI;
@@ -1294,6 +1526,27 @@ let acc = 0;
 let last = performance.now();
 let fpsAcc = 0, fpsFrames = 0, fps = 60;
 
+// Frame-time breakdown (Backquote to toggle). Ring buffers, not push/shift,
+// so sampling every frame costs zero allocation. 120 samples = 2s at 60fps —
+// long enough to catch an intermittent GC/compile spike, short enough that
+// the readout tracks what you're doing RIGHT NOW rather than a match-long
+// average that hides it.
+const PERF_SAMPLES = 120;
+let perfHudOn = false;
+let perfIdx = 0, perfCount = 0;
+const perfSim = new Float32Array(PERF_SAMPLES);
+const perfUpdate = new Float32Array(PERF_SAMPLES);
+const perfRender = new Float32Array(PERF_SAMPLES);
+const perfTotal = new Float32Array(PERF_SAMPLES);
+let perfText = '';
+
+function perfStats(arr) {
+    const n = perfCount;
+    let sum = 0, max = 0;
+    for (let i = 0; i < n; i++) { const v = arr[i]; sum += v; if (v > max) max = v; }
+    return { avg: n ? sum / n : 0, max };
+}
+
 function frame(now) {
     requestAnimationFrame(frame);
     let dt = (now - last) / 1000;
@@ -1316,9 +1569,16 @@ function frame(now) {
         return;
     }
 
+    // performance.now(), not the rAF `now` param: they're the same clock in
+    // a real browser frame, but pump() (tests, preview turntables) can be
+    // driven with synthetic timestamps that don't track wall-clock render
+    // cost, which would make this total meaningless.
+    const tFrameStart = performance.now();
+
     // Fixed-step simulation. The cap stops a long stall from spiralling.
     // Inside the loop, snapshot fighter + projectile state BEFORE each step
     // so the render phase can lerp between the two most recent sim states.
+    const tSimStart = performance.now();
     let steps = 0;
     while (acc >= FIXED_DT && steps < 5) {
         // --- snapshot PREV: the state BEFORE this step ---------------------
@@ -1337,6 +1597,10 @@ function frame(now) {
         if (!overlay.storyActive && !intro.active) {
             engine.step([readInput(0), cpu ? cpu.bits(engine) : readInput(1)]);
         }
+        // Unconditional: the carry ages per SIM step, and must keep draining
+        // while story/intro hold the sim so a press made during dialogue
+        // expires instead of firing on resume.
+        tickPressCarry();
         acc -= FIXED_DT;
         steps++;
 
@@ -1350,6 +1614,8 @@ function frame(now) {
             _projCurr[pr.id] = { x: pr.x, y: pr.y, z: pr.z };
         }
     }
+
+    const tSimEnd = performance.now();
 
     // Build interpolated viewPose for this frame.
     // alpha: how far we are between the last sim step (at prev) and the next
@@ -1391,6 +1657,8 @@ function frame(now) {
     // computes spark age in engine frames so hitstop/slow-mo are honoured.
     hitSparks.update(engine.frame);
 
+    const tUpdateEnd = performance.now();
+
     fpsAcc += dt; fpsFrames++;
     if (fpsAcc >= 0.5) { fps = Math.round(fpsFrames / fpsAcc); fpsAcc = 0; fpsFrames = 0; }
 
@@ -1404,10 +1672,33 @@ function frame(now) {
         })),
         debug: `${fps} fps · frame ${engine.frame} · ${f0.state}/${f1.state}` +
             (f0.charge ? ` · ⚡${f0.charge}` : '') + (f1.charge ? ` · ⚡${f1.charge}` : '') +
-            (f0.move ? ` · ${f0.move.moveName} f${f0.stateFrame}` : ''),
+            (f0.move ? ` · ${f0.move.moveName} f${f0.stateFrame}` : '') +
+            (perfHudOn ? `\n${perfText}` : ''),
     }, dt);
 
+    const tRenderStart = performance.now();
     fx.render(dt);
+    const tRenderEnd = performance.now();
+
+    // Record this frame's breakdown into the ring buffers. Total is measured
+    // end-to-end (rAF callback entry to render finish) rather than summed
+    // from the three phases, so it also catches anything NOT bucketed above
+    // (viewPose interpolation, the fps/overlay bookkeeping itself).
+    perfSim[perfIdx] = tSimEnd - tSimStart;
+    perfUpdate[perfIdx] = tUpdateEnd - tSimEnd;
+    perfRender[perfIdx] = tRenderEnd - tRenderStart;
+    perfTotal[perfIdx] = tRenderEnd - tFrameStart;
+    perfIdx = (perfIdx + 1) % PERF_SAMPLES;
+    if (perfCount < PERF_SAMPLES) perfCount++;
+
+    if (perfHudOn && fpsAcc === 0) {
+        // Piggybacks the fps bucket above (also 0.5s) so the readout updates
+        // at a readable rate instead of re-rendering text every frame.
+        const t = perfStats(perfTotal), s = perfStats(perfSim), u = perfStats(perfUpdate), r = perfStats(perfRender);
+        perfText = `frame ${t.avg.toFixed(1)}ms (max ${t.max.toFixed(1)}) · ` +
+            `sim ${s.avg.toFixed(1)} · update ${u.avg.toFixed(1)} · ` +
+            `render ${r.avg.toFixed(1)} (max ${r.max.toFixed(1)})`;
+    }
 }
 
 function resize() {
@@ -1590,4 +1881,4 @@ window.YAMIWARD = {
     pump: frame,
 };
 
-// yw-202608151829-4532de
+// yw-202608160312-608dac
